@@ -1,0 +1,2641 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head>
+  
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>나만의 야구 선수 만들기</title>
+  <meta name="description" content="고교 1학년부터 대학, 2군, KBO·NPB 1군을 거쳐 은퇴와 명예의 전당까지 나만의 야구 선수를 육성하는 시뮬레이션 게임">
+  <meta property="og:title" content="나만의 야구 선수 만들기">
+  <meta property="og:description" content="고교 1학년부터 대학, 2군, KBO·NPB 1군을 거쳐 은퇴와 명예의 전당까지 나만의 야구 선수를 육성하는 시뮬레이션 게임">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&amp;family=Noto+Sans+KR:wght@400;500;600;700;800&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap">
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════
+       KBO 단장 모드 (v1.0) — 프런트 오피스 대시보드 디자인 시스템
+       기반: Sky Marshmallow (라이트 모드) & 야간 구장 (다크 모드)
+       ═══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --bg: #F4F7FB;
+      --surface: #FFFFFF;
+      --surface-subtle: #F8FAFC;
+      --surface-hover: #EFF6FF;
+      --border: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --text-main: #0F172A;
+      --text-muted: #475569;
+      --text-faint: #64748B;
+      --accent: #1572D6;
+      --accent-hover: #0D56AD;
+      --accent-soft: #E8F3FF;
+      --good: #12864A;
+      --good-soft: #E4F6EB;
+      --bad: #D0403E;
+      --bad-soft: #FDECEB;
+      --warn: #B86E00;
+      --warn-soft: #FFF3DC;
+      --font-sans: "Plus Jakarta Sans", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: "IBM Plex Mono", "Noto Sans KR", monospace;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+
+    html[data-theme="dark"] {
+      --bg: #0B1120;
+      --surface: #131C31;
+      --surface-subtle: #19243E;
+      --surface-hover: #1E2D4F;
+      --border: #263554;
+      --border-strong: #33466B;
+      --text-main: #F1F5F9;
+      --text-muted: #94A3B8;
+      --text-faint: #64748B;
+      --accent: #3898FF;
+      --accent-hover: #60AEFF;
+      --accent-soft: rgba(56, 152, 255, 0.15);
+      --good: #34D399;
+      --good-soft: rgba(52, 211, 153, 0.14);
+      --bad: #F87171;
+      --bad-soft: rgba(248, 113, 113, 0.14);
+      --warn: #FBBF24;
+      --warn-soft: rgba(251, 191, 36, 0.14);
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+    [hidden] {
+      display: none !important;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tnum {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .font-bold {
+      font-weight: 700;
+    }
+    .muted {
+      color: var(--text-muted);
+    }
+    .tiny {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .text-good {
+      color: var(--good);
+    }
+    .text-bad {
+      color: var(--bad);
+    }
+    .sep {
+      margin: 0 6px;
+      color: var(--text-faint);
+    }
+
+    /* ── Top Bar Contract (3-Zone Navigation) ── */
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .main-nav {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      overflow-x: auto;
+    }
+
+    .nav-link {
+      background: none;
+      border: none;
+      padding: 18px 2px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: var(--text-main);
+    }
+    .nav-link.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── Main Container & Executive Summary Strip ── */
+    .gm-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 24px 64px;
+    }
+
+    .exec-strip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 1.2fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    @media (max-width: 1024px) {
+      .exec-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 640px) {
+      .exec-strip {
+        grid-template-columns: 1fr;
+      }
+      .top-bar {
+        height: auto;
+        padding: 10px 16px;
+        flex-wrap: wrap;
+      }
+      .main-nav {
+        order: 3;
+        width: 100%;
+        gap: 14px;
+      }
+      .nav-link {
+        padding: 8px 2px;
+      }
+    }
+
+    .club-select-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .gm-select {
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .metric-block-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .metric-block-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-main);
+      line-height: 1.2;
+    }
+
+    .gauge-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .gauge-track {
+      height: 7px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .gauge-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.2s ease;
+    }
+    .gauge-fill.good {
+      background: var(--good);
+    }
+
+    .sim-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+    }
+    .sim-btn-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      justify-content: flex-end;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary,
+    .btn-secondary,
+    .btn-sm,
+    .btn-xs {
+      font-family: inherit;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #FFFFFF;
+      border: 1px solid var(--accent);
+      padding: 9px 16px;
+      font-size: 13.5px;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+    .btn-secondary {
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      padding: 8px 13px;
+      font-size: 13px;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12.5px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+    }
+    .btn-sm.primary,
+    .btn-xs.primary {
+      background: var(--accent);
+      color: #FFFFFF;
+      border-color: var(--accent);
+    }
+    .btn-sm.ghost,
+    .btn-xs.ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+    .btn-xs {
+      padding: 4px 8px;
+      font-size: 11.5px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ── Panels & Grid Layout ── */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 1080px) {
+      .grid-2col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      margin: 0;
+      color: var(--text-main);
+    }
+
+    /* ── Stat Summary Strip ── */
+    .stat-strip-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 768px) {
+      .stat-strip-4 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .stat-tile {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .stat-val {
+      font-size: 19px;
+      font-weight: 800;
+      margin-top: 4px;
+      color: var(--text-main);
+    }
+    .stat-sub {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    /* ── High-Density Tables ── */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .gm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .gm-table th {
+      text-align: left;
+      padding: 9px 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: var(--surface-subtle);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .gm-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .gm-table.compact th,
+    .gm-table.compact td {
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    .gm-table tbody tr:hover {
+      background: var(--surface-hover);
+    }
+    .gm-table tbody tr.my-team-row {
+      background: var(--accent-soft);
+    }
+    .gm-table tbody tr.player-row {
+      cursor: pointer;
+    }
+    .gm-table tbody tr.ps-line:nth-child(5) td {
+      border-bottom: 2px dashed var(--accent);
+    }
+
+    .inline-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-left: 6px;
+    }
+    .pos-code {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--accent);
+    }
+    .status-text.good {
+      color: var(--good);
+      font-weight: 600;
+    }
+    .status-text.bad {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    /* ── Segmented Sub-Tabs & Filter Bars ── */
+    .subtab-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: var(--surface-subtle);
+      padding: 5px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+    .subtab-btn {
+      background: transparent;
+      border: none;
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .subtab-btn.active {
+      background: var(--surface);
+      color: var(--accent);
+      font-weight: 700;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ── Weekly Match Result Cards ── */
+    .weekly-summary-banner {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .match-card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 640px) {
+      .match-card-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .match-result-card {
+      text-align: left;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 11px 13px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.1s ease;
+    }
+    .match-result-card:hover {
+      border-color: var(--accent);
+    }
+    .match-card-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .match-badge.win {
+      color: var(--good);
+      font-weight: 800;
+    }
+    .match-badge.lose {
+      color: var(--bad);
+      font-weight: 800;
+    }
+    .match-score-line {
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .match-Pitcher-line {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* ── News & Scout Cards ── */
+    .news-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .news-item {
+      padding: 9px 12px;
+      background: var(--surface-subtle);
+      border-left: 3px solid var(--border-strong);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .news-item.good {
+      border-left-color: var(--good);
+    }
+    .news-item.bad {
+      border-left-color: var(--bad);
+    }
+    .news-item.highlight {
+      border-left-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .scout-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .scout-card {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .scout-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .scout-rank-tag {
+      margin-left: auto;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .scout-metrics {
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+    .scout-reason {
+      font-size: 12.5px;
+      color: var(--text-main);
+    }
+    .scout-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    /* ── Inputs & Storage Slots ── */
+    .num-input {
+      width: 100px;
+      padding: 5px 8px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 13px;
+      text-align: right;
+    }
+    .num-input-xs {
+      width: 52px;
+      padding: 5px 6px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .slot-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .slot-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 14px 16px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .slot-title {
+      font-weight: 700;
+      font-size: 14.5px;
+      margin-bottom: 4px;
+    }
+    .slot-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .empty-box,
+    .report-box {
+      padding: 14px 16px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .empty-cell {
+      text-align: center;
+      padding: 24px !important;
+      color: var(--text-muted);
+    }
+    .log-row {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    /* ── Modal & Toast ── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      max-width: 780px;
+      width: 100%;
+      max-height: 88vh;
+      overflow-y: auto;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    }
+    .modal-stat-row {
+      display: grid;
+      grid-template-columns: 56px 1fr 90px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .modal-stat-label {
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .modal-stat-bar {
+      height: 10px;
+      background: var(--surface-subtle);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .modal-stat-bar i {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+    }
+    .modal-stat-val {
+      text-align: right;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .boxscore-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 720px) {
+      .boxscore-split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    #gmToast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 80;
+      background: var(--text-main);
+      color: var(--surface);
+      padding: 11px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13.5px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    #gmToast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── 초기 로비(슬롯 선택) & 새 단장 만들기 화면 (스크린샷 1·2 디자인) ── */
+    .lobby-wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 44px 18px 64px;
+    }
+    .lobby-theme-floating {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      z-index: 50;
+      border-radius: 999px;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    .lobby-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .lobby-main-title {
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 900;
+      color: #2563eb;
+      letter-spacing: -0.03em;
+      margin: 0 0 10px;
+    }
+    html[data-theme="dark"] .lobby-main-title {
+      color: #60a5fa;
+    }
+    .lobby-subtitle {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      margin: 0 0 16px;
+    }
+    .lobby-subtitle strong {
+      color: #2563eb;
+    }
+    html[data-theme="dark"] .lobby-subtitle strong {
+      color: #60a5fa;
+    }
+    .lobby-guide-pill {
+      display: inline-block;
+      padding: 9px 22px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+    }
+    .lobby-sec-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 800;
+      margin: 26px 0 12px;
+      color: var(--text-main);
+    }
+    .lobby-sec-title::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    .lobby-slot-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .lobby-slot-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 20px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+    }
+    .lobby-slot-card.empty {
+      background: transparent;
+      border: 1.5px dashed #cbd5e1;
+      box-shadow: none;
+    }
+    html[data-theme="dark"] .lobby-slot-card.empty {
+      border-color: #334155;
+    }
+    .lobby-slot-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .lobby-ball-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #1d6ce0;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .lobby-plus-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: #1d6ce0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .lobby-slot-name {
+      font-size: 16.5px;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+    .lobby-slot-sub {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .lobby-slot-right {
+      display: flex;
+       flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .btn-continue-link {
+      background: none;
+      border: none;
+      color: #1d6ce0;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 6px;
+    }
+    html[data-theme="dark"] .btn-continue-link {
+      color: #60a5fa;
+    }
+    .btn-clear-pill {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .btn-new-gm-pill {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d6ce0;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    html[data-theme="dark"] .btn-new-gm-pill {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+    .lobby-bottom-bar {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .lobby-row-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px 20px;
+      border-radius: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-weight: 800;
+      font-size: 14px;
+      color: var(--text-main);
+      cursor: pointer;
+    }
+
+    /* ── 새 단장 생성 폼 카드 (스크린샷 2 스타일) ── */
+    .create-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 26px 24px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    .create-field-label {
+      display: block;
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--text-muted);
+      margin: 18px 0 8px;
+    }
+    .create-field-label:first-child {
+      margin-top: 0;
+    }
+    .create-text-input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      font-size: 15.5px;
+      font-weight: 600;
+    }
+    .create-pill-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 600px) {
+      .create-pill-row {
+        grid-template-columns: 1fr;
+      }
+    }
+    .create-choice-pill {
+      padding: 13px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .create-choice-pill.active {
+      background: #1d6ce0;
+      border-color: #1d6ce0;
+      color: #ffffff;
+    }
+    .create-team-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+    @media (max-width: 680px) {
+      .create-team-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .create-team-box {
+      padding: 12px 8px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      transition: all 0.15s ease;
+    }
+    .create-team-box.active {
+      background: #1d6ce0;
+      border-color: #1d6ce0;
+      color: #ffffff;
+    }
+    .create-team-box .t-name {
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .create-team-box .t-sub {
+      font-size: 11px;
+      opacity: 0.85;
+    }
+    .create-team-box .t-bud {
+      font-size: 12.5px;
+      font-weight: 800;
+      margin-top: 2px;
+    }
+    .create-desc-box {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+    .locked-team-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 우측 상단 테마 토글 (로비 화면용) -->
+  <button type="button" class="lobby-theme-floating" id="btnLobbyTheme">☀️ 밝게</button>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       [화면 A] 시작 슬롯 선택 & 새 단장 만들기 화면 (스크린샷 1·2 동일 구조)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="lobbyContainer" class="lobby-wrap">
+    <div class="lobby-header">
+      <h1 class="lobby-main-title">나만의 야구 단장 만들기</h1>
+      <p class="lobby-subtitle">
+        2025년 1월 1일 스토브리그 → 9월 3주차 신인 드래프트 → KBO 1군 · 단장 모드 <strong>v1.0</strong>
+      </p>
+      <button type="button" class="lobby-guide-pill" id="btnOpenGuideModal">게임 설명</button>
+    </div>
+
+    <!-- (A-1) 슬롯 목록 뷰 -->
+    <div id="lobbySlotView">
+      <div class="lobby-sec-title">단장 세이브 슬롯 — 최대 3개 (+ 자동 저장)</div>
+      <div id="lobbySlotCards" class="lobby-slot-list">
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon">⚾</div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 128.38억 · 신임도 81
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="slot_1">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="slot_1">비우기</button>
+            </div>
+          </div>
+        
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon">⚾</div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 120억 · 신임도 60
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="slot_2">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="slot_2">비우기</button>
+            </div>
+          </div>
+        
+            <div class="lobby-slot-card empty">
+              <div class="lobby-slot-left">
+                <div class="lobby-plus-icon">+</div>
+                <div>
+                  <div class="lobby-slot-name" style="font-size:15px">단장 3 — 빈 슬롯</div>
+                  <div class="lobby-slot-sub">새 단장 프로필을 생성하고 담당 구단에 부임하세요 (3년 8억 계약)</div>
+                </div>
+              </div>
+              <div class="lobby-slot-right">
+                <button type="button" class="btn-new-gm-pill" data-lobby-new="slot_3">새 단장 만들기</button>
+              </div>
+            </div>
+          
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon">⚾</div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 120억 · 신임도 60
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="auto_save">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="auto_save">비우기</button>
+            </div>
+          </div>
+        </div>
+
+      <div class="lobby-bottom-bar">
+        <button type="button" class="lobby-row-action" id="btnLobbyExportHtml">
+          <span>Netlify 배포용 단일 index.html 다운로드</span>
+          <span>&gt;</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- (A-2) 새 단장 만들기 폼 뷰 (스크린샷 2 동일 디자인 · 구단 선택 시 영구 고정) -->
+    <div id="lobbyCreateView" class="create-card" hidden="">
+      <label class="create-field-label" for="createGmName">단장 이름</label>
+      <input type="text" id="createGmName" class="create-text-input" placeholder="이름을 적어 주세요" value="백승수">
+
+      <label class="create-field-label">단장 출신 배경 (특성 선택)</label>
+      <div class="create-pill-row" id="createTraitGroup">
+        <button type="button" class="create-choice-pill active" data-create-trait="DATA_ANALYST">데이터 분석가 (스카우트 +1)</button>
+        <button type="button" class="create-choice-pill" data-create-trait="FIELD_EXPERT">현장 출신 (신임도 +10)</button>
+        <button type="button" class="create-choice-pill" data-create-trait="NEGOTIATOR">협상의 달인 (요구액 -5%)</button>
+      </div>
+
+      <label class="create-field-label">단장 첫 계약 조건 (고정)</label>
+      <div class="create-pill-row" style="grid-template-columns: 1fr 1fr;">
+        <div class="create-choice-pill active" style="cursor:default">3년 계약 · 총액 8억 원</div>
+        <div class="create-choice-pill active" style="cursor:default">계약금 2억 원 + 연봉 2억 원</div>
+      </div>
+
+      <label class="create-field-label">담당 구단 선택 (한 번 정해지면 변경 불가 · 2024 순위 역순 예산)</label>
+      <div class="create-team-grid" id="createTeamGrid">
+          <button type="button" class="create-team-box active" data-select-create-team="KIA">
+            <span class="t-name">KIA (광주)</span>
+            <span class="t-sub">24시즌 1위 · 전력 78</span>
+            <span class="t-bud">예산 120억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="SAM">
+            <span class="t-name">삼성 (대구)</span>
+            <span class="t-sub">24시즌 2위 · 전력 76</span>
+            <span class="t-bud">예산 125억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="LG">
+            <span class="t-name">LG (서울)</span>
+            <span class="t-sub">24시즌 3위 · 전력 76</span>
+            <span class="t-bud">예산 130억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="DOO">
+            <span class="t-name">두산 (잠실)</span>
+            <span class="t-sub">24시즌 4위 · 전력 74</span>
+            <span class="t-bud">예산 140억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="KT">
+            <span class="t-name">kt (수원)</span>
+            <span class="t-sub">24시즌 5위 · 전력 73</span>
+            <span class="t-bud">예산 145억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="SSG">
+            <span class="t-name">SSG (인천)</span>
+            <span class="t-sub">24시즌 6위 · 전력 73</span>
+            <span class="t-bud">예산 150억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="LOT">
+            <span class="t-name">롯데 (부산)</span>
+            <span class="t-sub">24시즌 7위 · 전력 71</span>
+            <span class="t-bud">예산 155억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="HAN">
+            <span class="t-name">한화 (대전)</span>
+            <span class="t-sub">24시즌 8위 · 전력 71</span>
+            <span class="t-bud">예산 160억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="NC">
+            <span class="t-name">NC (창원)</span>
+            <span class="t-sub">24시즌 9위 · 전력 70</span>
+            <span class="t-bud">예산 165억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="KIW">
+            <span class="t-name">키움 (고척)</span>
+            <span class="t-sub">24시즌 10위 · 전력 67</span>
+            <span class="t-bud">예산 175억</span>
+          </button>
+        </div>
+
+      <div id="createTeamDescBox" class="create-desc-box">
+        <strong>[1위 광주 고양이즈 (KIA) — 한국시리즈 디펜딩 챔피언 / 우승 목표]</strong><br>
+        1군 평균 체급 <strong>78</strong> · 2군 체급 <strong>62</strong> · 초기 배정 예산 <strong>120억</strong> (난이도: 보통).<br>
+        첫 계약은 <strong>[3년 계약 / 총액 8억 원 (계약금 2억 + 연봉 2억)]</strong>으로 고정되며, <strong>2025년 1월 1일</strong> 스토브리그부터 즉시 업무를 시작합니다. <strong>한 번 선택한 담당 구단은 중도 변경이 불가능합니다.</strong>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button type="button" class="create-choice-pill active" id="btnConfirmCreateGM" style="flex:2;border-radius:14px;padding:15px">
+          단장 부임하기 (2025년 1월 1일 스토브리그 시작)
+        </button>
+        <button type="button" class="create-choice-pill" id="btnCancelCreateGM" style="flex:1;border-radius:14px;padding:15px">
+          슬롯 목록으로
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       [화면 B] 단장 모드 메인 대시보드 (담당 구단 변경 불가 · 고정)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="dashboardAppWrap" hidden="">
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       상단 3-Zone 내비게이션 바
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <header class="top-bar">
+    <a href="#top" class="brand-title">KBO 프런트 오피스</a>
+
+    <nav class="main-nav" aria-label="단장 업무 메뉴">
+      <button type="button" class="nav-link" data-main-tab="pennant">페넌트레이스</button>
+      <button type="button" class="nav-link active" data-main-tab="roster">로스터 관리</button>
+      <button type="button" class="nav-link" data-main-tab="offseason">스토브리그</button>
+      <button type="button" class="nav-link" data-main-tab="records">데이터 기록실</button>
+      <button type="button" class="nav-link" data-main-tab="storage">저장 및 배포</button>
+    </nav>
+
+    <div class="top-actions">
+      <button type="button" class="btn-secondary" id="btnBackToLobby">슬롯 화면으로</button>
+      <button type="button" class="btn-secondary" id="btnQuickAutoSave">빠른 저장</button>
+      <button type="button" class="btn-secondary" id="btnThemeToggle">🌙 야간 경기장</button>
+    </div>
+  </header>
+
+  <main class="gm-container" id="top">
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         구단 요약 헤더 스트립 (담당 구단 고정 · 예산 · 신임도/팬심 · 날짜 진행)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section class="exec-strip" aria-label="구단 경영 현황 요약">
+      <div>
+        <div class="club-select-row">
+          <span class="metric-block-label" style="margin:0">담당 구단 (고정)</span>
+          <span id="hdrLockedTeamName" class="locked-team-badge">광주 고양이즈 (KIA)</span>
+        </div>
+        <div id="hdrTeamMeta" class="tiny tnum">백승수 단장 (데이터 분석가) · 계약: 3년 총액 8억 (계약금 2억/연봉 2억, 잔여 3년)</div>
+        <div id="hdrOwnerGoal" class="tiny" style="margin-top:3px;font-weight:600">2024시즌 1위 → 구단주 목표: 한국시리즈 디펜딩 챔피언 / 우승 목표 (스카우트 Lv.2)</div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+          <div class="metric-block-label" style="margin:0">구단 운영 예산 (보유 자금)</div>
+          <button type="button" class="btn-xs primary" id="btnOpenBudgetRequestModal" title="구단주에게 특별 예산 증액 요청">구단주 증액 요청</button>
+        </div>
+        <div id="hdrBudget" class="metric-block-val tnum">120억</div>
+        <div id="hdrPayrollSub" class="tiny tnum" style="margin-top:3px">연봉총액 93.21억 · 여유 26.79억 · 현재 1위 (0승 0패 0무)</div>
+      </div>
+
+      <div>
+        <div class="gauge-row">
+          <span>구단주 신임도</span>
+          <span id="hdrTrustVal" class="tnum">60 / 100</span>
+        </div>
+        <div class="gauge-track"><div id="hdrTrustBar" class="gauge-fill" style="width:60%"></div></div>
+
+        <div class="gauge-row">
+          <span>팬 민심 지수</span>
+          <span id="hdrFanVal" class="tnum">58 / 100</span>
+        </div>
+        <div class="gauge-track" style="margin-bottom:0"><div id="hdrFanBar" class="gauge-fill good" style="width: 58%;"></div></div>
+      </div>
+
+      <div class="sim-controls">
+        <div id="hdrSeasonBadge" class="tnum font-bold">2025년 1월 1일 (수) · 1월 스토브리그 (FA·연봉·코치·외국인·트레이드 활성)</div>
+        <div class="sim-btn-row">
+          <button type="button" class="btn-primary" id="btnNextDay">+1일 진행</button>
+          <button type="button" class="btn-secondary" id="btnNextWeek">1주 스킵 (+7일 진행)</button>
+          <button type="button" class="btn-secondary" id="btnNext4Weeks">4주 진행</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [PART 2] 단장 업무 가이드 '오늘의 할 일 (Today's To-Do)' (KBO_GM.Assistant)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="todaysTodoPanel" class="panel" style="margin-bottom:16px;padding:12px 16px" aria-label="오늘의 단장 업무 가이드">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div>
+          <strong style="font-size:14px">📋 오늘의 단장 업무 가이드 (KBO_GM.Assistant · 2025년 1월 1일 (수))</strong>
+          <span class="tiny" style="margin-left:8px">
+            🔴 필수 할 일 <strong>2건</strong> ·
+            🟡 추천 할 일 <strong>3건</strong>
+          </span>
+        </div>
+        <span class="tiny muted">원클릭 자동 해결 또는 해당 업무 탭으로 즉시 이동할 수 있습니다.</span>
+      </div>
+      <div class="scout-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px">
+        
+            <div class="scout-card" style="padding:10px 12px;border-left:4px solid var(--bad)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong style="font-size:12.5px">🔴 필수 · 스토브리그 FA 시장(20명) &amp; 국내 선수 연봉 재계약(61명)</strong>
+              </div>
+              <div class="tiny" style="margin:4px 0 8px">개막 전 선수단 연봉 재계약과 FA 시장 입찰/외국인 구성을 마무리하세요.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-assistant-quick-task="STOVE_LEAGUE_RENEWAL_FA">⚡ 적정안 연봉·FA 일괄 처리</button>
+                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="offseason" data-assistant-goto-sub="fa">업무 화면 이동 →</button>
+              </div>
+            </div>
+          
+            <div class="scout-card" style="padding:10px 12px;border-left:4px solid var(--bad)">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong style="font-size:12.5px">🔴 필수 · FA 20인/25인 보호명단 및 2차 드래프트 35인 보호명단 확정</strong>
+              </div>
+              <div class="tiny" style="margin:4px 0 8px">외부 FA 영입 보상선수 유출 및 격년 2차 드래프트에 대비해 핵심 유망주를 보호명단에 묶으세요.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-assistant-quick-task="PROTECTION_LIST_SUBMIT">⚡ 보호명단 자동 최적 구성</button>
+                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="offseason" data-assistant-goto-sub="front5">업무 화면 이동 →</button>
+              </div>
+            </div>
+          
+            <div class="scout-card" style="padding:10px 12px;border-left:4px solid #f59e0b">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong style="font-size:12.5px">🟡 추천 · 1군 엔트리 보강 추천 (현재 26/28명 · 1군 부상 0명)</strong>
+              </div>
+              <div class="tiny" style="margin:4px 0 8px">2군 최고 컨디션 오승민(RP, OVR 66) 선수의 1군 콜업을 추천합니다.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-assistant-quick-task="CALLUP_RECOMMENDATION">⚡ 추천 2군 선수 즉시 콜업</button>
+                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="roster" data-assistant-goto-sub="2GUN">업무 화면 이동 →</button>
+              </div>
+            </div>
+          
+            <div class="scout-card" style="padding:10px 12px;border-left:4px solid #f59e0b">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong style="font-size:12.5px">🟡 추천 · 2군·육성군 유망주 맞춤형 훈련 미지정자 38명 과제 부여</strong>
+              </div>
+              <div class="tiny" style="margin:4px 0 8px">선수별 [구속/제구/신구종/선구안/파워] 맞춤 과제를 지정하면 2군 성장 속도가 +25% 가속됩니다.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-assistant-quick-task="FUTURES_DEV_ASSIGN">⚡ 미지정 유망주 맞춤훈련 일괄 설정</button>
+                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="offseason" data-assistant-goto-sub="front5">업무 화면 이동 →</button>
+              </div>
+            </div>
+          
+            <div class="scout-card" style="padding:10px 12px;border-left:4px solid #f59e0b">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
+                <strong style="font-size:12.5px">🟡 추천 · 여유 예산(120.0억) 기반 구단 R&amp;D 인프라 증축 추천</strong>
+              </div>
+              <div class="tiny" style="margin:4px 0 8px">재활센터(Lv.1) · 바이오메카닉스 랩(Lv.1) · 스카우트 본부(Lv.1) 투자가 가능합니다.</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-assistant-quick-task="FACILITY_INVEST_REC">⚡ 최우선 R&amp;D 시설 1단계 증축</button>
+                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="offseason" data-assistant-goto-sub="front5">업무 화면 이동 →</button>
+              </div>
+            </div>
+          
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 1] 주간 페넌트레이스 대시보드
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_pennant" hidden="">
+      <div id="pennantTeamStatSummary" class="stat-strip-4">
+        <div class="stat-tile">
+          <div class="stat-label">팀 타율 / 출루율</div>
+          <div class="stat-val tnum">.000 <span class="stat-sub">/ .000</span></div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">팀 평균자책점 (ERA)</div>
+          <div class="stat-val tnum">0.00 <span class="stat-sub">(0탈삼진)</span></div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">팀 누적 홈런</div>
+          <div class="stat-val tnum">0개</div>
+        </div>
+        <div class="stat-tile">
+          <div class="stat-label">선수단 합산 WAR</div>
+          <div class="stat-val tnum">0.0</div>
+        </div>
+      </div>
+
+      <div class="grid-2col">
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title">KBO 리그 구단 순위표</h2>
+            <span class="tiny">상위 5개 구단 포스트시즌 진출</span>
+          </div>
+          <div class="table-wrap">
+            <table class="gm-table">
+              <thead>
+                <tr>
+                  <th>순위</th>
+                  <th>구단명</th>
+                  <th>경기</th>
+                  <th>승</th>
+                  <th>패</th>
+                  <th>무</th>
+                  <th>승률</th>
+                  <th>게임차</th>
+                  <th>득점</th>
+                  <th>실점</th>
+                  <th>득실차</th>
+                  <th>신임도</th>
+                  <th>팬심</th>
+                </tr>
+              </thead>
+              <tbody id="pennantStandingsBody">
+            <tr class="my-team-row ps-line">
+              <td class="tnum font-bold">1</td>
+              <td>
+                <span class="font-bold">광주 고양이즈</span>
+                <span class="inline-tag">내 구단</span>
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">58</td>
+            </tr>
+          
+            <tr class=" ps-line">
+              <td class="tnum font-bold">2</td>
+              <td>
+                <span class="font-bold">대구 표범즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">57</td>
+            </tr>
+          
+            <tr class=" ps-line">
+              <td class="tnum font-bold">3</td>
+              <td>
+                <span class="font-bold">서울 쌍둥이즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">56</td>
+            </tr>
+          
+            <tr class=" ps-line">
+              <td class="tnum font-bold">4</td>
+              <td>
+                <span class="font-bold">잠실 판다즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">55</td>
+            </tr>
+          
+            <tr class=" ps-line">
+              <td class="tnum font-bold">5</td>
+              <td>
+                <span class="font-bold">수원 도깨비즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">54</td>
+            </tr>
+          
+            <tr class=" ">
+              <td class="tnum font-bold">6</td>
+              <td>
+                <span class="font-bold">인천 물범즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">53</td>
+            </tr>
+          
+            <tr class=" ">
+              <td class="tnum font-bold">7</td>
+              <td>
+                <span class="font-bold">부산 갈매기즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">52</td>
+            </tr>
+          
+            <tr class=" ">
+              <td class="tnum font-bold">8</td>
+              <td>
+                <span class="font-bold">대전 송골매즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">51</td>
+            </tr>
+          
+            <tr class=" ">
+              <td class="tnum font-bold">9</td>
+              <td>
+                <span class="font-bold">창원 도마뱀즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">50</td>
+            </tr>
+          
+            <tr class=" ">
+              <td class="tnum font-bold">10</td>
+              <td>
+                <span class="font-bold">고척 용사즈</span>
+                
+              </td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum font-bold">0.000</td>
+              <td class="tnum">-</td>
+              <td class="tnum">0</td>
+              <td class="tnum">0</td>
+              <td class="tnum text-good">0</td>
+              <td class="tnum">60</td>
+              <td class="tnum">49</td>
+            </tr>
+          </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">주간 6연전 경기 결과 &amp; 박스스코어</h2>
+            </div>
+            <div id="pennantWeeklyMatches">
+          <div class="empty-box">
+            아직 진행된 주간 경기가 없습니다. 상단의 <strong>'주차 진행 (Fast-Sim)'</strong> 버튼을 눌러 페넌트레이스를 시작하세요.
+          </div>
+        </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2 class="panel-title">부상자 리포트 &amp; 멀티리그 스카우트 속보</h2>
+            </div>
+            <div id="pennantWeeklyNews" class="news-list"><div class="news-item good"><strong style="font-weight:800">[내 구단 컨디션] 광주 고양이즈(고양이즈) 현재 부상자 0명 — 1군·2군 전원 정상 가동 중 (2군 퓨처스 0승 0패 0무)</strong></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- [PART 4-1] KBO 포스트시즌(가을야구) 계단식 토너먼트 브래킷 요약 -->
+      <div id="pennantPostseasonPanel" class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">🏆 KBO 포스트시즌(가을야구) 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h2>
+            <div class="tiny">정규시즌 상위 5개 구단 진출 · 4인 선발 압축 로테이션 &amp; 불펜 총력전 · 배당금(+15억~+50억 원) 및 구단주 신임도(+5~+25) 지급</div>
+          </div>
+          <button type="button" class="btn-primary" data-run-postseason="1" disabled="">
+            🔒 10월 10일 가을야구 개막 시 활성화 (D-282일)
+          </button>
+        </div>
+        <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid #f59e0b;background:rgba(245,158,11,0.1)">
+             🔒 <strong>[가을야구 개막 대기 · D-282일]</strong> KBO 포스트시즌은 페넌트레이스 종료 후 <strong>2025년 10월 10일</strong>에 공식 개막합니다. 정규시즌 일정을 진행해 상위 5개 시드를 확정하세요.
+           </div>
+        <div class="weekly-summary-banner" style="margin-bottom:10px">
+          <strong>현재 가을야구 진출권 (Top 5):</strong> 1위 광주 고양이즈(0승 0패) · 2위 대구 표범즈(0승 0패) · 3위 서울 쌍둥이즈(0승 0패) · 4위 잠실 판다즈(0승 0패) · 5위 수원 도깨비즈(0승 0패)
+        </div>
+        <div class="empty-box">페넌트레이스 종료 후 <strong>10월 10일 가을야구 개막일</strong>이 도래하면 포스트시즌 토너먼트가 활성화됩니다.</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 2] 로스터 & 1군/2군/육성군 관리 (Fog of War 적용)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_roster">
+      <div class="panel">
+        <div class="panel-head">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <h2 class="panel-title">구단 선수단 로스터 &amp; 엔트리 이동</h2>
+            <select id="rosterTeamSelect" class="gm-select" aria-label="조회 구단 선택"><option value="KIA">광주 고양이즈 (고양이즈) [내 구단]</option><option value="SAM">대구 표범즈 (표범즈) [스카우팅]</option><option value="LG">서울 쌍둥이즈 (쌍둥이즈) [스카우팅]</option><option value="DOO">잠실 판다즈 (판다즈) [스카우팅]</option><option value="KT">수원 도깨비즈 (도깨비즈) [스카우팅]</option><option value="SSG">인천 물범즈 (물범즈) [스카우팅]</option><option value="LOT">부산 갈매기즈 (갈매기즈) [스카우팅]</option><option value="HAN">대전 송골매즈 (송골매즈) [스카우팅]</option><option value="NC">창원 도마뱀즈 (도마뱀즈) [스카우팅]</option><option value="KIW">고척 용사즈 (용사즈) [스카우팅]</option></select>
+          </div>
+          <button type="button" class="btn-secondary" id="btnUpgradeScout">스카우트 Lv.3 증설 (3.6억)</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:10px">
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-roster-sub="1GUN">1군 엔트리 (<span id="cntRoster1G" class="tnum">26 / 28명</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="2GUN">2군 퓨처스 (<span id="cntRoster2G" class="tnum">30 / 30명</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="YUKSEONG">육성군 (<span id="cntRosterDev" class="tnum">8명</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="MILITARY">상무 군보류 (<span id="cntRosterMil" class="tnum">0 / 4명</span>)</button>
+          </div>
+
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-pos-filter="ALL">전체 포지션</button>
+            <button type="button" class="subtab-btn" data-pos-filter="pitcher">투수진 (SP/RP/CP)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="C">포수 (C)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="IF">내야수 (IF/DH)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="OF">외야수 (OF)</button>
+          </div>
+        </div>
+
+        <div id="rosterReleaseBanner" class="weekly-summary-banner" style="margin-bottom:10px">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;width:100%">
+            <div>
+              <strong>[선수단 정리 &amp; 예산 절감 방출 관리]</strong>
+              <span class="sep">·</span>
+              <span class="tnum">전체 보유 <strong>64명</strong> (2군 30명 / 육성군 8명)</span>
+              <span class="sep">·</span>
+              <span class="tnum text-good">✅ <strong>2군·육성선수 상시 무제한 방출 가능</strong> (위약금 면제 + 연봉 예산 즉시 절감 환급)</span>
+              <span class="sep">·</span>
+              <span class="tnum">1군 무료방출 쿼터: <strong>0명</strong></span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button type="button" class="btn-xs ghost text-bad" id="btnQuickReleaseLowest2GDev">
+                🧹 2군/육성 최하위 1명 즉시 방출 (예산 절감)
+              </button>
+              <button type="button" class="btn-xs primary" id="btnAutoTrimDraftees">
+                신인 입단 수만큼 하위 전력 자동 방출 (0명)
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="futuresTeamSummaryBanner" style="margin-bottom:10px">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;width:100%">
+          <div>
+            <strong>[2군 퓨처스리그 &amp; 육성 현황 — 광주 고양이즈 (고양이즈)]</strong>
+            <span class="sep">·</span>
+            <span class="tnum">2군 전적: <strong>0승 0패 0무 (승률 .000)</strong> · 득점 0 / 실점 0</span>
+          </div>
+          <div class="tiny">
+            주간 진행 시 2군/육성군 경기가 함께 치러지며 유망주들의 능력치가 실시간 성장합니다.
+          </div>
+        </div>
+      </div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th data-roster-sort="pos" style="cursor:pointer" title="클릭하여 보직순 정렬">보직 <span id="sortInd_pos" style="opacity: 0.35;">↕</span></th>
+                <th data-roster-sort="name" style="cursor:pointer" title="클릭하여 이름순 정렬">선수명 <span id="sortInd_name" style="opacity: 0.35;">↕</span></th>
+                <th data-roster-sort="age" style="cursor:pointer" title="클릭하여 나이순 정렬">나이 <span id="sortInd_age" style="opacity: 0.35;">↕</span></th>
+                <th>투타</th>
+                <th data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR (안개) <span id="sortInd_ovr" style="opacity: 1;">▼</span></th>
+                <th data-roster-sort="potential" style="cursor:pointer" title="클릭하여 포텐셜순 정렬">포텐셜 <span id="sortInd_potential"></span></th>
+                <th>이번 시즌 주요 기록 (1군 / 2군 퓨처스)</th>
+                <th data-roster-sort="war" style="cursor:pointer" title="클릭하여 WAR순 정렬">WAR <span id="sortInd_war" style="opacity: 0.35;">↕</span></th>
+                <th data-roster-sort="salary" style="cursor:pointer" title="클릭하여 연봉순 정렬">연봉 <span id="sortInd_salary" style="opacity: 0.35;">↕</span></th>
+                <th data-roster-sort="fatigue" style="cursor:pointer" title="클릭하여 피로도순 정렬">상태/피로도 <span id="sortInd_fatigue" style="opacity: 0.35;">↕</span></th>
+                <th>엔트리 · 방출 관리</th>
+              </tr>
+            </thead>
+            <tbody id="rosterTableBody">
+          <tr class="player-row" data-player-modal="plr_46wzicls" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">SP</span></td>
+            <td>
+              <strong>디에고 무어</strong>
+              <span class="inline-tag">USA</span>
+            </td>
+            <td class="tnum">32세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">86</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">88</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">6.14억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_46wzicls" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_46wzicls" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost text-bad" data-release-foreign="plr_46wzicls">퇴출(방출)</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_jrzoq49m" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">1B</span></td>
+            <td>
+              <strong>이든 마르티네스</strong>
+              <span class="inline-tag">DOM</span>
+            </td>
+            <td class="tnum">30세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">84</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">92</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">6.12억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_jrzoq49m" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_jrzoq49m" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost text-bad" data-release-foreign="plr_jrzoq49m">퇴출(방출)</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_tr64ei6y" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">SP</span></td>
+            <td>
+              <strong>그레이슨 에르난데스</strong>
+              <span class="inline-tag">USA</span>
+            </td>
+            <td class="tnum">29세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">83</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">89</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.98억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_tr64ei6y" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_tr64ei6y" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost text-bad" data-release-foreign="plr_tr64ei6y">퇴출(방출)</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_vy0ze357" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">SP</span></td>
+            <td>
+              <strong>최유준</strong>
+              
+            </td>
+            <td class="tnum">21세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">82</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">104</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.59억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_vy0ze357" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_vy0ze357" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_vy0ze357" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_vy0ze357" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_mq9lh5km" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>윤도현</strong>
+              
+            </td>
+            <td class="tnum">25세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">81</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">89</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.62억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_mq9lh5km" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_mq9lh5km" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_mq9lh5km" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_mq9lh5km" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_a44o4lei" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>강준영</strong>
+              
+            </td>
+            <td class="tnum">23세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">81</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">96</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.83억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_a44o4lei" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_a44o4lei" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_a44o4lei" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_a44o4lei" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_8sbsqrir" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>이재민</strong>
+              
+            </td>
+            <td class="tnum">25세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">81</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">88</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.67억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_8sbsqrir" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_8sbsqrir" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_8sbsqrir" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_8sbsqrir" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_q0culntk" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">C</span></td>
+            <td>
+              <strong>안성민</strong>
+              
+            </td>
+            <td class="tnum">35세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">81</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">92</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.97억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_q0culntk" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_q0culntk" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_q0culntk" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_q0culntk" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_pwc5vqcp" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">3B</span></td>
+            <td>
+              <strong>한재민</strong>
+              
+            </td>
+            <td class="tnum">28세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">81</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">84</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.22억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_pwc5vqcp" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_pwc5vqcp" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_pwc5vqcp" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_pwc5vqcp" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_94lzeayy" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>이동건</strong>
+              
+            </td>
+            <td class="tnum">27세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">80</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">90</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.04억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_94lzeayy" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_94lzeayy" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_94lzeayy" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_94lzeayy" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_e93x6gu9" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>서성민</strong>
+              
+            </td>
+            <td class="tnum">29세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">80</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">84</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.51억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_e93x6gu9" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_e93x6gu9" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_e93x6gu9" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_e93x6gu9" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_brk3j0w9" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>박지호</strong>
+              
+            </td>
+            <td class="tnum">33세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">80</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">85</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.39억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_brk3j0w9" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_brk3j0w9" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_brk3j0w9" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_brk3j0w9" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_c1eo1iiz" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">CP</span></td>
+            <td>
+              <strong>최승우</strong>
+              
+            </td>
+            <td class="tnum">21세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">80</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">96</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.29억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_c1eo1iiz" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_c1eo1iiz" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_c1eo1iiz" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_c1eo1iiz" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_6n6ofrj7" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">2B</span></td>
+            <td>
+              <strong>송민준</strong>
+              
+            </td>
+            <td class="tnum">23세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">80</strong> <span class="muted">(A)</span></td>
+            <td><span class="tnum">93</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.34억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_6n6ofrj7" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_6n6ofrj7" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_6n6ofrj7" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_6n6ofrj7" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_qkk81xsn" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">SP</span></td>
+            <td>
+              <strong>박동건</strong>
+              
+            </td>
+            <td class="tnum">24세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">79</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">92</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.29억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_qkk81xsn" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_qkk81xsn" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_qkk81xsn" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_qkk81xsn" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_kf26yzav" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">RP</span></td>
+            <td>
+              <strong>임예준</strong>
+              
+            </td>
+            <td class="tnum">26세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">79</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">88</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.17억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_kf26yzav" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_kf26yzav" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_kf26yzav" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_kf26yzav" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_f0ks090m" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">DH</span></td>
+            <td>
+              <strong>서지우</strong>
+              
+            </td>
+            <td class="tnum">35세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">78</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">86</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.52억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_f0ks090m" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_f0ks090m" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_f0ks090m" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_f0ks090m" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_pg5tk9ck" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">C</span></td>
+            <td>
+              <strong>박준혁</strong>
+              
+            </td>
+            <td class="tnum">28세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">77</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">87</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">3.15억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_pg5tk9ck" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_pg5tk9ck" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_pg5tk9ck" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_pg5tk9ck" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_ieh9a8rs" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">SS</span></td>
+            <td>
+              <strong>한예준</strong>
+              
+            </td>
+            <td class="tnum">29세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">77</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">85</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.98억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_ieh9a8rs" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_ieh9a8rs" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_ieh9a8rs" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_ieh9a8rs" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_b1xty389" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">LF</span></td>
+            <td>
+              <strong>최규민</strong>
+              
+            </td>
+            <td class="tnum">21세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">77</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">96</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.24억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_b1xty389" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_b1xty389" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_b1xty389" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_b1xty389" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_ull877xw" data-team-id="KIA">
+            <td><span class="pos-code pos-pitcher">SP</span></td>
+            <td>
+              <strong>권예준</strong>
+              
+            </td>
+            <td class="tnum">34세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">76</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">78</span></td>
+            <td class="tnum">0G 0이닝 · ERA 0.00 · 0승 0패 0세</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">2.26억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_ull877xw" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_ull877xw" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_ull877xw" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_ull877xw" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_mxbuwzus" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">C</span></td>
+            <td>
+              <strong>윤윤우</strong>
+              
+            </td>
+            <td class="tnum">25세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">74</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">79</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.82억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_mxbuwzus" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_mxbuwzus" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_mxbuwzus" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_mxbuwzus" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_4bdr23kc" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">2B</span></td>
+            <td>
+              <strong>최민성</strong>
+              
+            </td>
+            <td class="tnum">25세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">74</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">78</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.23억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_4bdr23kc" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_4bdr23kc" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_4bdr23kc" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_4bdr23kc" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_lhubwuhw" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">CF</span></td>
+            <td>
+              <strong>홍승민</strong>
+              
+            </td>
+            <td class="tnum">26세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">74</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">85</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.2억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_lhubwuhw" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_lhubwuhw" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_lhubwuhw" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_lhubwuhw" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_8dpv89ue" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">SS</span></td>
+            <td>
+              <strong>박재윤</strong>
+              
+            </td>
+            <td class="tnum">34세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">73</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">76</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.32억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_8dpv89ue" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_8dpv89ue" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_8dpv89ue" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_8dpv89ue" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        
+          <tr class="player-row" data-player-modal="plr_vhksa784" data-team-id="KIA">
+            <td><span class="pos-code pos-batter">1B</span></td>
+            <td>
+              <strong>조성현</strong>
+              
+            </td>
+            <td class="tnum">26세</td>
+            <td>우타-우투</td>
+            <td><strong class="tnum">73</strong> <span class="muted">(B)</span></td>
+            <td><span class="tnum">76</span></td>
+            <td class="tnum">0G · 타율 0.000 · 0홈런 0타점 · OPS 0.000</td>
+            <td class="tnum font-bold ">0.00</td>
+            <td class="tnum">1.84억</td>
+            <td><span class="status-text good">정상(피로 0)</span></td>
+            <td class="action-cell" onclick="event.stopPropagation()"><button type="button" class="btn-xs ghost" data-player-modal="plr_vhksa784" data-team-id="KIA">상세</button> <button type="button" class="btn-xs" data-move-player="plr_vhksa784" data-target-status="2GUN">2군행</button> <button type="button" class="btn-xs ghost" data-move-player="plr_vhksa784" data-target-status="YUKSEONG">육성군</button> <button type="button" class="btn-xs ghost text-bad" data-release-domestic="plr_vhksa784" title="1군 선수 웨이버 방출">방출</button></td>
+          </tr>
+        </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 3] 스토브리그 / 프런트 오피스 업무 (드래프트 · 연봉 · FA · 외국인 · 캠프)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_offseason" hidden="">
+      <div style="margin-bottom:16px">
+        <div class="subtab-bar">
+          <button type="button" class="subtab-btn active" data-off-sub="draft">01. 신인 드래프트장 (고교·대학·독립리그)</button>
+          <button type="button" class="subtab-btn" data-off-sub="salary">02. 연봉 재계약 · 조정위</button>
+          <button type="button" class="subtab-btn" data-off-sub="fa">03. FA 시장 (A/B/C 등급)</button>
+          <button type="button" class="subtab-btn" data-off-sub="foreign">04. 외국인 · 아시아 쿼터 영입</button>
+          <button type="button" class="subtab-btn" data-off-sub="camp">05. 코치진 인선 · 스프링캠프</button>
+          <button type="button" class="subtab-btn" data-off-sub="trade">06. 단장 간 트레이드 협상실 (지명권·현금)</button>
+          <button type="button" class="subtab-btn" data-off-sub="front5">07. 프런트 핵심 &amp; 5대 심화 (포스트시즌·2차드래프트·상무·R&amp;D·샐러리캡·포스팅·구장개조·2군육성·사기·보호명단)</button>
+        </div>
+      </div>
+
+      <!-- (3-1) 신인 드래프트 패널 -->
+      <div id="offPanel_draft" class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">고교/대학 아마추어 신인 드래프트 (1~10라운드)</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-primary" id="btnDraftAutoRound">현재 라운드 스카우트 추천 지명</button>
+            <button type="button" class="btn-secondary" id="btnDraftPassRound">지명권 포기 (PASS)</button>
+            <button type="button" class="btn-secondary" id="btnDraftRunAll">1~10R 전 구단 자동 완료</button>
+          </div>
+        </div>
+
+        <div id="draftStatusBanner" class="weekly-summary-banner"></div>
+        <div id="amateurScoutDispatchBox"></div>
+
+        <h3 style="font-size:14px;margin:14px 0 8px">스카우트 팀 추천 지명 후보 (BPA + 포지션 보강 분석)</h3>
+        <div id="draftRecGrid" class="scout-grid"></div>
+
+        <div class="grid-2col">
+          <div>
+            <h3 style="font-size:14px;margin:8px 0">드래프트 참가 유망주 풀 (상위 40명)</h3>
+            <div class="table-wrap">
+              <table class="gm-table compact">
+                <thead>
+                  <tr>
+                    <th>순위</th>
+                    <th>포지션</th>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>추정 OVR</th>
+                    <th>예상 라운드</th>
+                    <th>지명</th>
+                  </tr>
+                </thead>
+                <tbody id="draftPoolTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-size:14px;margin:8px 0">우리 구단 지명 결과 리포트</h3>
+            <div id="draftMyPicksLog"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- (3-2A) 연봉 재계약 패널 -->
+      <div id="offPanel_salary" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">선수단 연봉 재계약 및 연봉 조정 위원회</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div class="subtab-bar">
+              <button type="button" class="subtab-btn active" data-salary-policy="FAIR">적정안 (WAR 기반)</button>
+              <button type="button" class="subtab-btn" data-salary-policy="GENEROUS">후한 인상 (+6%)</button>
+              <button type="button" class="subtab-btn" data-salary-policy="AUSTERITY">긴축 삭감 (-20%)</button>
+            </div>
+            <button type="button" class="btn-primary" id="btnRunSalaryRenewals">전 구단 연봉 재계약 일괄 실행</button>
+          </div>
+        </div>
+
+        <div id="salaryResultReport" style="margin-bottom:14px"></div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>보직</th>
+                <th>선수명</th>
+                <th>시즌 WAR</th>
+                <th>기존 연봉</th>
+                <th>산출 적정 연봉</th>
+                <th>구단 제시액 (억 원)</th>
+                <th>증감액</th>
+              </tr>
+            </thead>
+            <tbody id="salaryTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-2B) FA 시장 패널 -->
+      <div id="offPanel_fa" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">KBO FA 시장 (A/B/C 등급제 &amp; 20인 외 보상선수)</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnDeclareFA">FA 자격 선수 공시</button>
+            <button type="button" class="btn-primary" id="btnRunFAMarket">FA 시장 입찰 마감 및 결과 발표</button>
+          </div>
+        </div>
+
+        <div id="faResultReport" style="margin-bottom:14px"></div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>등급</th>
+                <th>선수명</th>
+                <th>원소속구단</th>
+                <th>핵심 능력치 (OVR / 5대 스탯)</th>
+                <th>시즌 WAR</th>
+                <th>선수 요구 조건</th>
+                <th>타구단 영입 시 보상 규약</th>
+                <th>우리 구단 입찰 제시</th>
+                <th>입찰</th>
+              </tr>
+            </thead>
+            <tbody id="faMarketTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-2C) 외국인 선수 & 아시아 쿼터 계약 패널 -->
+      <div id="offPanel_foreign" class="panel" hidden="">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">외국인 선수 3인 쿼터 (투수 2 + 타자 1) &amp; 아시아 쿼터 1인 별도 영입</h2>
+            <div class="tiny">재계약 유지/제외 선택 및 MLB·NPB 상위리그 오퍼 대응 연봉 협상을 진행할 수 있습니다. (3명 모두 제외하고 전원 신규 교체도 가능)</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnForeignSelectAllKeep">3인 전원 유지 선택</button>
+            <button type="button" class="btn-secondary" id="btnForeignClearAllKeep">3인 전원 제외(교체)</button>
+            <button type="button" class="btn-primary" id="btnRunForeignContracts">외국인 재계약 및 신규 영입 확정</button>
+          </div>
+        </div>
+
+        <div id="foreignResultReport" style="margin-bottom:12px"></div>
+
+        <h3 style="font-size:14px;margin:0 0 8px">현재 보유 외국인 선수 (재계약 유지/제외 선택 &amp; 상위리그 오퍼 대응 연봉 협상)</h3>
+        <div id="foreignCurrentList" class="scout-grid"></div>
+
+        <!-- [신규 요청 11] KBO 아시아 쿼터제 (구단당 1명 별도 보유 가능) -->
+        <div id="asianQuarterSectionBox" style="margin:18px 0;padding:14px;background:rgba(15,23,42,0.72);border:1px solid rgba(56,189,248,0.35);border-radius:10px"></div>
+
+        <h3 style="font-size:14px;margin:16px 0 8px">NPB / AAA 해외 스카우트 추천 외국인 후보 리스트</h3>
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>보직</th>
+                <th>선수명 (리그/국적)</th>
+                <th>나이</th>
+                <th>스카우트 OVR</th>
+                <th>해외 리그 성적</th>
+                <th>예상 계약 총액</th>
+                <th>영입 지정</th>
+              </tr>
+            </thead>
+            <tbody id="foreignPoolTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-3) 코치진 인선 & 스프링캠프 & 새 시즌 개막 패널 -->
+      <div id="offPanel_camp" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">코칭스태프 인선 · 스프링캠프 · 새 시즌 개막</h2>
+          <button type="button" class="btn-primary" id="btnStartNewSeason">오프시즌 종료 및 새 시즌 개막</button>
+        </div>
+
+        <div id="currentStaffSummary" class="weekly-summary-banner"></div>
+
+        <div class="grid-2col">
+          <div class="panel" style="margin-bottom:0">
+            <h3 style="font-size:14.5px;margin:0 0 10px">1. 감독 및 투수·타격 코치 선임 (100% 가상 인재 풀)</h3>
+            <div style="display:grid;gap:10px">
+              <div>
+                <label for="campMgrSelect" class="metric-block-label">감독 선임 (데이터 / 스몰볼 / 육성 / 윈나우)</label>
+                <select id="campMgrSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <div>
+                <label for="campPitSelect" class="metric-block-label">투수코치 선임</label>
+                <select id="campPitSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <div>
+                <label for="campHitSelect" class="metric-block-label">타격코치 선임</label>
+                <select id="campHitSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <button type="button" class="btn-secondary" id="btnConfirmStaff">코칭스태프 계약 확정</button>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:0">
+            <h3 style="font-size:14.5px;margin:0 0 10px">2. 전지훈련(스프링캠프) 출발</h3>
+            <div style="display:grid;gap:10px">
+              <div>
+                <label for="campLocSelect" class="metric-block-label">전지훈련 캠프지 선택</label>
+                <select id="campLocSelect" class="gm-select" style="width:100%">
+                  <option value="USA">미국 애리조나/플로리다 캠프 (비용 3.5억 · 부상위험 최저 · 성장/신구종 최고)</option>
+                  <option value="OKINAWA">일본 오키나와/미야자키 캠프 (비용 2.2억 · 실전감각 · 균형 성장)</option>
+                  <option value="DOMESTIC">국내 1차 캠프 (비용 0.5억 · 꽃샘추위 부상 위험 · 컨디션 저하)</option>
+                </select>
+              </div>
+              <div>
+                <label for="campFocusSelect" class="metric-block-label">캠프 중점 훈련 테마</label>
+                <select id="campFocusSelect" class="gm-select" style="width:100%">
+                  <option value="BALANCED">투타 밸런스 종합 훈련</option>
+                  <option value="PITCHING">마운드 구위·제구·신구종 집중 연마</option>
+                  <option value="HITTING">타선 장타력·컨택·선구안 집중 강화</option>
+                </select>
+              </div>
+              <button type="button" class="btn-primary" id="btnRunSpringCamp">✈️ 스프링캠프 출발 (14일 전지훈련 시작)</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="campResultReport" style="margin-top:14px"></div>
+      </div>
+
+      <!-- (3-4) [신규 요청 8 & 9] 단장 간 트레이드 협상실 (다대다 선수 + 드래프트 지명권 양도 + 현금 트레이드 + 7월 31일 마감 시한) -->
+      <div id="offPanel_trade" class="panel" hidden="">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">KBO 단장 간 트레이드 협상 테이블 (상대 구단 선택 · 직접 카드 제안 · 지명권 · 현금)</h2>
+            <div class="tiny">상대 구단을 선택한 뒤 우리 선수와 상대 선수를 체크하여 <strong>내가 직접 트레이드를 제안</strong>하거나, AI 단장의 역제안을 받아볼 수 있습니다. (매년 7월 31일 마감)</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnFindTradeOffers">🔍 선택한 우리 선수로 타구단 오퍼 탐색</button>
+            <button type="button" class="btn-secondary" id="btnTradeAutoBalance">🤝 AI 단장 조건 자동 조율 (지명권·현금)</button>
+            <button type="button" class="btn-primary" id="btnExecutePackageTrade">📨 내가 구성한 카드로 직접 트레이드 제안</button>
+          </div>
+        </div>
+
+        <div id="tradeDeadlineBanner" class="weekly-summary-banner" style="margin-bottom:12px"></div>
+        <div id="tradeNegotiationTableBox"></div>
+        <div id="tradeOffersExplorerBox" style="margin-top:12px"></div>
+        <div id="tradeHistoryLogBox" style="margin-top:14px"></div>
+      </div>
+
+      <!-- (3-5) [PART 4] KBO 5대 프런트 핵심 시스템 통합 컨트롤 타워 -->
+      <div id="offPanel_front5" class="panel" hidden="">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">KBO 5대 프런트 핵심 시스템 (가을야구 · 격년 2차 드래프트 · 상무 병역 · R&amp;D 인프라 · 샐러리캡 &amp; 비FA 다년)</h2>
+            <div class="tiny">포스트시즌 배당금, 35인 보호선수 2차 드래프트, 상무 피닉스 18개월 복무 성장, 3대 R&amp;D 시설(Lv.1~5), 경쟁균형세(120억 상한) 및 비FA 다년 연장 계약을 총괄합니다.</div>
+          </div>
+        </div>
+        <div id="front5DashboardContainer"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 4] 데이터 기록실 (KBO 타자/투수 WAR 리더 · NPB · 고교/대학 유망주 · 역대 시즌)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_records" hidden="">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">멀티 리그 통합 데이터 기록실</h2>
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-rec-sub="kboBat">KBO 타자 WAR 순위</button>
+            <button type="button" class="subtab-btn" data-rec-sub="kboPit">KBO 투수 WAR 순위</button>
+            <button type="button" class="subtab-btn" data-rec-sub="npb">NPB / 해외 스카우트 풀 (300명)</button>
+            <button type="button" class="subtab-btn" data-rec-sub="amateur">고교/대학 유망주 랭킹 (200명)</button>
+            <button type="button" class="subtab-btn" data-rec-sub="history">역대 시즌 결산</button>
+          </div>
+        </div>
+
+        <div id="recordsContentBox"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 5] 신규 단장 부임 세팅 · IndexedDB 저장소 · 단일 index.html 번들 다운로드
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_storage" hidden="">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">신임 단장 프로필 생성 및 2025년 1월 1일 새 시즌 시작 (KBO_GM.Setup)</h2>
+            <div class="tiny">단장 초기 고정 계약: <strong>3년 총액 8억 원 (계약금 2억 원 + 연봉 2억 원)</strong> · 2024 KBO 최종 순위 역순 예산 배정</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label for="setupGmName" class="metric-block-label">단장 이름</label>
+            <input type="text" id="setupGmName" class="gm-select" value="백승수" style="min-width:140px">
+          </div>
+          <div>
+            <label for="setupGmTrait" class="metric-block-label">단장 출신 배경 (특성)</label>
+            <select id="setupGmTrait" class="gm-select">
+              <option value="DATA_ANALYST">데이터 분석가 (스카우트 Lv.+1 보정)</option>
+              <option value="FIELD_EXPERT">현장 출신 (구단주 초기 신임도 +10 · 사기 상승)</option>
+              <option value="NEGOTIATOR">협상의 달인 (FA·연봉 재계약 요구액 5% 절감)</option>
+            </select>
+          </div>
+          <div>
+            <label for="setupTeamId" class="metric-block-label">부임 구단 (2024 순위 / 예산)</label>
+            <select id="setupTeamId" class="gm-select">
+              <option value="KIA">1위 KIA (광주 고양이즈 · 전력 78 · 예산 120억)</option>
+              <option value="SAM">2위 삼성 (대구 표범즈 · 전력 76 · 예산 125억)</option>
+              <option value="LG">3위 LG (서울 쌍둥이즈 · 전력 76 · 예산 130억)</option>
+              <option value="DOO">4위 두산 (잠실 판다즈 · 전력 74 · 예산 140억)</option>
+              <option value="KT">5위 kt (수원 도깨비즈 · 전력 73 · 예산 145억)</option>
+              <option value="SSG">6위 SSG (인천 물범즈 · 전력 73 · 예산 150억)</option>
+              <option value="LOT">7위 롯데 (부산 갈매기즈 · 전력 71 · 예산 155억)</option>
+              <option value="HAN">8위 한화 (대전 송골매즈 · 전력 71 · 예산 160억)</option>
+              <option value="NC">9위 NC (창원 도마뱀즈 · 전력 70 · 예산 165억)</option>
+              <option value="KIW">10위 키움 (고척 용사즈 · 전력 67 · 예산 175억)</option>
+            </select>
+          </div>
+          <div>
+            <label for="setupSlotId" class="metric-block-label">저장 슬롯</label>
+            <select id="setupSlotId" class="gm-select" style="min-width:120px">
+              <option value="slot_1">슬롯 1 (slot_1)</option>
+              <option value="slot_2">슬롯 2 (slot_2)</option>
+              <option value="slot_3">슬롯 3 (slot_3)</option>
+              <option value="auto_save">자동저장 (auto_save)</option>
+            </select>
+          </div>
+          <button type="button" class="btn-primary" id="btnStartNewGMSetup">신임 단장 부임 &amp; 2025.01.01 개막</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">IndexedDB 대용량 세이브 슬롯 관리</h2>
+            <div class="tiny">10개 구단 로스터·해외/아마추어 풀·수십 년 치 통산 기록을 브라우저 IndexedDB에 영구 보관합니다.</div>
+          </div>
+          <button type="button" class="btn-primary" id="btnExportStandaloneHtml" disabled="">단일 index.html 병합 중...</button>
+        </div>
+
+        <div id="storageSlotList" class="slot-grid"></div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       모달 (선수 상세 스카우팅 리포트 & 경기 박스스코어) 및 토스트 알림
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="gmModalBackdrop" class="modal-backdrop" hidden="">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="gmModalTitle">
+      <div class="panel-head">
+        <h3 id="gmModalTitle" class="panel-title">선수 상세 리포트</h3>
+        <button type="button" class="btn-xs" id="gmModalClose">닫기</button>
+      </div>
+      <div id="gmModalBody"></div>
+    </div>
+  </div>
+
+  <div id="gmToast" role="status" aria-live="polite" data-type="good" class="">백승수 단장 부임 완료! (광주 고양이즈 고정 · 3년 8억 계약 · 2025년 1월 1일 개막)</div>
+  <div id="root" hidden=""></div>
+
+  <!-- 9개 KBO_GM 코어 엔진 & 확장 모듈 + 프런트엔드 대시보드 컨트롤러 -->
+  <script src="gm-schema.js"></script>
+  <script src="gm-match-sim.js"></script>
+  <script src="gm-weekly-sim.js"></script>
+  <script src="gm-storage.js"></script>
+  <script src="gm-draft.js"></script>
+  <script src="gm-offseason.js"></script>
+  <script src="gm-spring-camp.js"></script>
+  <script src="gm-extensions.js"></script>
+  <script src="gm-setup.js"></script>
+  <script src="gm-ui.js"></script>
+</body>
+</html>
