@@ -78,7 +78,7 @@
     rosterSortField: "ovr",     // 'pos' | 'name' | 'age' | 'ovr' | 'pot' | 'war' | 'salary' | 'fatigue'
     rosterSortAsc: false,       // false: 내림차순, true: 오름차순
     offseasonSubTab: "draft",   // 'draft' | 'salary' | 'fa' | 'foreign' | 'camp' | 'trade'
-    recordsSubTab: "kboBat",    // 'kboBat' | 'kboPit' | 'npb' | 'amateur' | 'history'
+    recordsSubTab: "kboBat",    // 'kboBat' | 'kboPit' | 'npb' | 'amateur' | 'history' | 'retro'
     lastWeeklyReport: null,
     lastDraftReport: null,
     lastSalaryReport: null,
@@ -2757,7 +2757,7 @@
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">6. ✈️ KBO-MLB 포스팅 시스템 (리그 최정상급 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
-              <div class="tiny">포스팅 기간(11월 1일~12월 15일)에 종합 OVR ${ext.POSTING_MIN_OVR || 82} 이상 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 89} 이상인 만 31세 이하 국내 선수 중 1명에게만 MLB 구단의 제안이 들어옵니다. 승인 시 이적료(+100억~300억 원)와 구단주 신임도(+12)가 유입되고, 불허하면 그해에는 다시 제안이 오지 않습니다(사기 -18).</div>
+              <div class="tiny">포스팅 기간(11월 1일~12월 15일)에 KBO ${ext.POSTING_MIN_SEASONS || 7}시즌 이상 뛴 만 31세 이하 국내 선수 중 종합 OVR ${ext.POSTING_MIN_OVR || 90} 이상 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 95} 이상인 1명에게만 MLB 구단의 제안이 들어옵니다. 승인 시 이적료(+100억~300억 원)와 구단주 신임도(+12)가 유입되고, 불허하면 그해에는 다시 제안이 오지 않습니다(사기 -18).</div>
             </div>
           </div>
           <div class="scout-grid">
@@ -2790,7 +2790,7 @@
               `<div class="empty-box">${
                 ext.isPostingWindowOpen && !ext.isPostingWindowOpen(ctx)
                   ? "MLB 포스팅 제안은 11월 1일~12월 15일에만 들어옵니다."
-                  : `현재 MLB 구단의 포스팅 제안을 받은 선수가 없습니다. (OVR ${ext.POSTING_MIN_OVR || 82}+ 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 89}+ 필요)`
+                  : `현재 MLB 구단의 포스팅 제안을 받은 선수가 없습니다. (KBO ${ext.POSTING_MIN_SEASONS || 7}시즌+ · OVR ${ext.POSTING_MIN_OVR || 90}+ 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 95}+ 필요)`
               }</div>`
             }
           </div>
@@ -3280,6 +3280,72 @@
   /* ═══════════════════════════════════════════════════════════════════════
    * 6. 탭 [4] 데이터 / 기록실 (KBO 타이틀 · NPB 라이브 · 아마추어 전국대회 랭킹 · 역대 시즌)
    * ═══════════════════════════════════════════════════════════════════════ */
+  /**
+   * 시즌 회고 리포트 (KBO_GM.Retro): 단장의 결정이 승수에 미친 영향
+   */
+  function renderSeasonRetroHtml(ctx) {
+    const reports = Array.isArray(ctx.seasonRetros) ? ctx.seasonRetros : [];
+    const intro = `
+      <div class="weekly-summary-banner" style="margin-bottom:12px">
+        <strong>시즌 회고 리포트</strong> · 매년 11월 4일(포스트시즌 종료 후) 자동 작성됩니다.
+        직전 시즌 종료 시점 로스터와 비교해 <strong>영입한 선수의 WAR − 떠난 선수의 WAR = 결정 순효과</strong>(1 WAR ≈ 1승)를 계산하고,
+        득실점 기대 승수와 실제 승수의 차이(운)를 따로 보여줍니다.
+      </div>`;
+    if (!reports.length) {
+      return `${intro}<div class="empty-box">아직 작성된 리포트가 없습니다. 첫 리포트는 ${ctx.currentYear}년 11월 4일에 도착합니다.</div>`;
+    }
+    const sign = (v) => `${v >= 0 ? "+" : ""}${v}`;
+    const card = (r, open) => `
+      <details class="report-box" style="margin-bottom:12px" ${open ? "open" : ""}>
+        <summary style="cursor:pointer;font-weight:700">${esc(r.headline)}</summary>
+        <div class="grid-3col" style="margin-top:10px">
+          <div class="scout-card">
+            <strong>결정 순효과</strong>
+            <div class="metric-block-val tnum ${r.netDecisionWins >= 0 ? "text-good" : "text-bad"}">${sign(r.netDecisionWins)}승</div>
+            <div class="tiny muted">영입 ${sign(r.acquiredWar)} · 이탈 -${r.departedWar}</div>
+          </div>
+          <div class="scout-card">
+            <strong>운 (득실점 기대 대비)</strong>
+            <div class="metric-block-val tnum ${r.luckWins >= 0 ? "text-good" : "text-bad"}">${sign(r.luckWins)}승</div>
+            <div class="tiny muted">기대 ${r.expectedWins}승 · 실제 ${r.record.w}승 (득점 ${r.record.rs} / 실점 ${r.record.ra})</div>
+          </div>
+          <div class="scout-card">
+            <strong>구단주 목표</strong>
+            <div class="metric-block-val tnum ${r.goal && r.goal.achieved ? "text-good" : "text-bad"}">${r.rank || "-"}위 / 목표 ${r.goal ? r.goal.targetRank : "-"}위</div>
+            <div class="tiny muted">${esc((r.goal && r.goal.title) || "-")}</div>
+          </div>
+        </div>
+        <div class="grid-2col" style="margin-top:10px">
+          <div>
+            <strong class="tiny">영입 경로별 WAR</strong>
+            <table class="gm-table compact"><tbody>
+              ${(r.byRoute || []).map((b) => `<tr><td>${esc(b.label)}</td><td class="tnum">${b.count}명</td><td class="tnum">${sign(b.war)}</td></tr>`).join("") || `<tr><td colspan="3" class="muted">영입 없음</td></tr>`}
+            </tbody></table>
+            <strong class="tiny" style="display:block;margin-top:8px">주요 영입</strong>
+            <table class="gm-table compact"><tbody>
+              ${(r.acquired || []).slice(0, 6).map((a) => `<tr><td>${esc(a.name)} <span class="muted">${esc(a.pos)}</span></td><td>${esc(a.routeLabel)}</td><td class="tnum">${sign(a.war)}</td></tr>`).join("") || `<tr><td class="muted">-</td></tr>`}
+            </tbody></table>
+          </div>
+          <div>
+            <strong class="tiny">떠난 선수 (이번 시즌 다른 곳에서의 WAR)</strong>
+            <table class="gm-table compact"><tbody>
+              ${(r.departed || []).slice(0, 6).map((d) => `<tr><td>${esc(d.name)} <span class="muted">${esc(d.pos)}</span></td><td>${esc(d.destination)}</td><td class="tnum">${d.war}${d.estimated ? "*" : ""}</td></tr>`).join("") || `<tr><td class="muted">이탈 없음</td></tr>`}
+            </tbody></table>
+            <div class="tiny muted">* KBO를 떠난 선수는 직전 시즌 WAR로 추정</div>
+            <strong class="tiny" style="display:block;margin-top:8px">성장 / 하락 (잔류 선수 OVR)</strong>
+            <div class="tiny">${(r.topGrowth || []).map((x) => `${esc(x.name)} ${x.ovrBefore}→<strong class="text-good">${x.ovrNow}</strong>`).join(" · ") || "-"}</div>
+            <div class="tiny">${(r.topDecline || []).map((x) => `${esc(x.name)} ${x.ovrBefore}→<strong class="text-bad">${x.ovrNow}</strong>`).join(" · ") || ""}</div>
+          </div>
+        </div>
+        ${
+          r.finance
+            ? `<div class="tiny muted" style="margin-top:8px">재정: 모기업 지원금 ${fmtMoney(r.finance.subsidy)} · 이월금 ${fmtMoney(r.finance.carryover)} · 시즌 수입 ${fmtMoney(r.finance.revenue)} · 연봉총액 ${fmtMoney(r.finance.payroll)} · 시즌 종료 여유 예산 ${fmtMoney(r.finance.available)}${r.finance.deficitWeeks ? ` · 적자 정산 ${r.finance.deficitWeeks}주` : ""}</div>`
+            : ""
+        }
+      </details>`;
+    return intro + reports.map((r, i) => card(r, i === 0)).join("");
+  }
+
   function renderRecordsTab() {
     const ctx = STATE.ctx;
     if (!ctx) return;
@@ -3433,6 +3499,8 @@
           </table>
         </div>
       `;
+    } else if (sub === "retro") {
+      container.innerHTML = renderSeasonRetroHtml(ctx);
     } else if (sub === "amateur") {
       const topAmateur = ctx.draftPool.slice(0, 30);
       container.innerHTML = `
@@ -4160,7 +4228,11 @@
       if (res.latestWeeklyReport) {
         STATE.lastWeeklyReport = res.latestWeeklyReport;
       }
-      if (res.draftWeekTriggered) {
+      const retroEvent = (res.dailyEvents || []).find((ev) => ev.type === "SEASON_RETRO");
+      if (retroEvent) {
+        STATE.recordsSubTab = "retro";
+        showToast(retroEvent.message, "good");
+      } else if (res.draftWeekTriggered) {
         STATE.activeTab = "offseason";
         STATE.offseasonSubTab = "draft";
         showToast(`[9월 23일] ${ctx.currentYear} KBO 신인 드래프트 지명 기간이 개막했습니다!`, "good");
@@ -4229,7 +4301,7 @@
             <div><strong>3. 2024 순위 기반 체급 &amp; 역순 예산:</strong> 1위 KIA(전력 78 / 예산 120억)부터 10위 키움(전력 67 / 예산 175억)까지 역순 예산이 배정됩니다.</div>
             <div><strong>3-1. 구단 재정 (난이도: 쉬움·보통·어려움):</strong> 예산은 한 해 운영 봉투이고 <strong>여유 예산 = 예산 − 연봉총액</strong>입니다. FA 계약금·첫해 연봉·시설 투자·현금 트레이드는 여유 예산 안에서만 가능합니다. 매 시즌 예산은 <strong>모기업 지원금(리그 평균 연봉 × 직전 순위 역순 배율: 1위 1.20배 ~ 10위 1.65배) + 이월금</strong>으로 정해지고, 정규시즌에는 매주 자체 수입과 운영비가 정산됩니다. 적자(여유 예산 마이너스)로 주간 정산을 맞으면 구단주 신임도가 깎이며, 상위권을 지키려면 구단주 증액 요청이 필요할 수 있습니다.</div>
             <div><strong>3-2. 전력 평준화 제도:</strong> 신인 드래프트·2차 드래프트·외국인 선수 영입은 순위 역순으로 진행됩니다. 경쟁균형세 상한은 리그 평균 상위 40인 연봉의 120%이며, 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 150% + 9단계 하락입니다. 스토브리그 업무를 직접 처리하지 않으면 마감일(12/1 연봉·FA 공시, 1/15 FA 시장, 1/31 외국인)에 자동 처리됩니다. FA 공시 후 7일은 원소속구단 우선협상 기간으로, 타 구단 FA는 기간이 끝나야 공개됩니다.</div>
-            <div><strong>3-3. 상무 · MLB 포스팅:</strong> 시작 시 만 25세 이상은 군필, 21~24세는 군필·미필이 섞여 있습니다. 상무는 구단당 4명까지이며 우리 구단 입대는 단장이 직접 결정합니다. MLB 포스팅 제안은 11월 1일~12월 15일에 리그 최정상급(OVR 82+ 또는 단일 능력치 89+, 만 31세 이하) 선수 중 구단당 1명에게만 들어옵니다.</div>
+            <div><strong>3-3. 상무 · MLB 포스팅:</strong> 시작 시 만 25세 이상은 군필, 21~24세는 군필·미필이 섞여 있습니다. 상무는 구단당 4명까지이며 우리 구단 입대는 단장이 직접 결정합니다. MLB 포스팅 제안은 11월 1일~12월 15일에 KBO 7시즌 이상 · 만 31세 이하 · OVR 90+ 또는 단일 능력치 95+ 선수 중 구단당 1명에게만 들어옵니다. 선수는 매 시즌 나이·잠재력·출전 시간에 따라 성장하며, 가끔 각성 시즌이 찾아옵니다.</div>
             <div><strong>4. 9월 3주차 신인 드래프트 &amp; 스카우트 파견:</strong> 고교 1~3학년 및 대학 리그에 스카우트를 파견해 유망주 오차(Fog of War)를 줄이고 9월 3주차에 드래프트를 진행합니다.</div>
             <div><strong>5. 외국인 선수 엄격 제한 &amp; 6주 대체 외인:</strong> 외국인은 육성군 등록이 절대 불가하며 방출 시 영구 퇴출됩니다. 6주 이상 장기 부상 시 6주 단기 대체 외국인을 영입할 수 있습니다.</div>
           </div>
@@ -4322,6 +4394,7 @@
             "gm-extensions.js",
             "gm-setup.js",
             "gm-economy.js",
+            "gm-retro.js",
             "gm-ui.js"
           ];
           const codes = await Promise.all(

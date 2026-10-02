@@ -1271,6 +1271,7 @@
           const split = breakdownContract(totalAmount, prof.faGrade, years);
           formerTeam.budget = clamp((formerTeam.budget || 1200000) - split.DP, -3000000, 4000000);
           faPlayer.teamId = formerTeam.id;
+          faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
           faPlayer.salary = split.annualBaseSalaryManwon;
           faPlayer.contractYears = years;
           faPlayer.faYears = 0;
@@ -1607,6 +1608,7 @@
 
       const formerTeam = context.getTeam ? context.getTeam(faPlayer.formerTeamId) : null;
       faPlayer.teamId = userTeam.id;
+      faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
       faPlayer.salary = annualSalary;
       faPlayer.contractYears = offerY;
       faPlayer.faYears = 0;
@@ -1877,6 +1879,7 @@
     signingTeam.rosterDev = signingTeam.rosterDev.filter((p) => p.id !== chosenCompPlayer.id);
 
     chosenCompPlayer.teamId = formerTeam.id;
+    chosenCompPlayer.acquiredVia = { type: "FA_COMPENSATION", date: context.currentDate || null, fromTeamId: chosenCompPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     if (formerTeam.roster1G.length < 28) {
       chosenCompPlayer.status = "1GUN";
       formerTeam.roster1G.push(chosenCompPlayer);
@@ -2100,6 +2103,7 @@
         winTeam.budget = clamp((winTeam.budget || 1200000) - winningBid.signingBonus, -3000000, 4000000);
 
         faPlayer.teamId = winTeam.id;
+        faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
         faPlayer.salary = winningBid.annualSalary;
         faPlayer.contractYears = winningBid.years;
         faPlayer.faYears = 0; // FA 계약 체결 시 FA 연차 리셋(4년 뒤 재취득 자격)
@@ -2179,6 +2183,7 @@
         const fallbackTeam = context.getTeam(faPlayer.formerTeamId);
         if (fallbackTeam && options.autoSignLeftoverFAs !== false) {
           faPlayer.teamId = fallbackTeam.id;
+          faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
           faPlayer.salary = Math.max(MIN_SALARY, round100(profile.prevSalary * 0.75));
           faPlayer.contractYears = 1;
           faPlayer.faYears = 0;
@@ -2600,6 +2605,7 @@
         team.budget = clamp((team.budget || 1200000) - buyoutFee, -3000000, 4000000);
 
         candidate.teamId = team.id;
+        candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
         candidate.salary = contractSalary;
         candidate.contractYears = 1;
         candidate.faYears = 0;

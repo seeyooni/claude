@@ -336,6 +336,7 @@
 
     // 3. 선수 소속/계약 정보 갱신
     prospect.teamId = team.id;
+    prospect.acquiredVia = { type: "DRAFT", date: context.currentDate || null, fromTeamId: prospect.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     prospect.salary = 3000; // 신인 최저연봉 3,000만원
     prospect.contractYears = 1;
     prospect.faYears = 0;
@@ -575,6 +576,7 @@
 
     const prospect = context.draftPool.splice(idx, 1)[0];
     prospect.teamId = team.id;
+    prospect.acquiredVia = { type: "DRAFT", date: context.currentDate || null, fromTeamId: prospect.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     prospect.status = "YUKSEONG";
     prospect.salary = 3000;
     prospect.contractYears = 1;

@@ -640,6 +640,7 @@
 
         // 지명 구단 1군 또는 2군 등록 (정원 준수)
         player.teamId = pickingTeam.id;
+        player.acquiredVia = { type: "SECONDARY_DRAFT", date: context.currentDate || null, fromTeamId: player.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
         if (pickingTeam.roster1G.length < 28 && round === 1) {
           player.status = "1GUN";
           pickingTeam.roster1G.push(player);
@@ -1414,12 +1415,11 @@
     "시카고 컵스"
   ];
 
-  // MLB 포스팅 제안 기준: 리그 최상위(약 1%) 스타만 MLB 구단의 관심을 받는다.
-  //   이 게임의 OVR 상한은 실질적으로 83~84, 단일 능력치 상한은 89 수준이므로
-  //   'OVR 90 / 능력치 95'와 같은 희소성을 OVR 82 / 단일 능력치 89로 맞췄다.
-  const POSTING_MIN_OVR = 82;
-  const POSTING_ELITE_STAT = 89;
+  // MLB 포스팅 제안 기준: 종합 OVR 90+ 또는 단일 능력치 95+ (연간 성장 도입 후 리그에 몇 명꼴로 등장하는 수준)
+  const POSTING_MIN_OVR = 90;
+  const POSTING_ELITE_STAT = 95;
   const POSTING_MAX_AGE = 31;
+  const POSTING_MIN_SEASONS = 7; // KBO 포스팅 자격: 7시즌 이상
   const POSTING_MAX_OFFERS = 1; // 구단당 한 해 최대 1명
   // 포스팅 제안 기간: 시즌 종료 후 11월 1일 ~ 12월 15일 (MLB 포스팅 윈도우)
   const POSTING_WINDOW = { startMMDD: "11-01", endMMDD: "12-15" };
@@ -1449,7 +1449,7 @@
     const team = context.getTeam(teamId || context.userTeamId);
     if (!team) return [];
 
-    // OVR 82+ 또는 단일 능력치 89+ 의 만 31세 이하 국내 스타에게만, 포스팅 기간(11/1~12/15)에 제안이 들어온다
+    // OVR 90+ 또는 단일 능력치 95+ · KBO 7시즌+ · 만 31세 이하 국내 스타에게만, 포스팅 기간(11/1~12/15)에 제안이 들어온다
     if (!isPostingWindowOpen(context)) return [];
     const list = team
       .getAllPlayers()
@@ -1458,6 +1458,7 @@
           (!p.nationality || p.nationality === "KOR") &&
           p.status !== "MILITARY" &&
           p.age <= POSTING_MAX_AGE &&
+          (Number(p.kboSeasons) || 0) >= POSTING_MIN_SEASONS &&
           p.postingRejectedYear !== (context.currentYear || 2025)
       )
       .map((p) => ({ p, q: getPostingQualification(p) }))
@@ -2779,10 +2780,12 @@
     });
 
     tradeChip.teamId = partnerTeam.id;
+    tradeChip.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: tradeChip.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     tradeChip.status = "2GUN";
     partnerTeam.roster2G.push(tradeChip);
 
     targetPlayer.teamId = team.id;
+    targetPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: targetPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     if (team.roster1G.length < 28) {
       targetPlayer.status = "1GUN";
       team.roster1G.push(targetPlayer);
@@ -3878,11 +3881,13 @@
     });
 
     sendPlayer.teamId = partnerTeam.id;
+    sendPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: sendPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     sendPlayer.status = partnerTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (sendPlayer.status === "1GUN") partnerTeam.roster1G.push(sendPlayer);
     else partnerTeam.roster2G.push(sendPlayer);
 
     acqPlayer.teamId = userTeam.id;
+    acqPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: acqPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     acqPlayer.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (acqPlayer.status === "1GUN") userTeam.roster1G.push(acqPlayer);
     else userTeam.roster2G.push(acqPlayer);
@@ -4797,6 +4802,66 @@
       `assert(stoveAutomationVerified) 실패: 스토브리그 마감일(연봉·FA 공시·FA 시장·외국인) 자동 처리가 완료되지 않았습니다.`
     );
 
+    // ── [성장·포스팅·회고 어설션 12~14] ──
+    const probeCtx = gm.Setup.createGameContextSync({ userTeamId: "KIA", autoSave: false });
+    const probeTeam = probeCtx.getUserTeam();
+    const domesticProbe = probeTeam.getAllPlayers().filter((p) => !p.nationality || p.nationality === "KOR");
+
+    // (12) 포스팅: 포스팅 기간 + OVR 90+ 이어도 KBO 6시즌이면 제안 없음, 7시즌이면 제안
+    probeCtx.currentDate = `${probeCtx.currentYear}-11-10`;
+    const starProbe = domesticProbe[0];
+    Object.keys(starProbe.st).forEach((k) => {
+      starProbe.st[k] = 99;
+    });
+    starProbe.age = 27;
+    starProbe.status = "1GUN";
+    starProbe.kboSeasons = POSTING_MIN_SEASONS - 1;
+    const offersAt6 = getMLBPostingCandidates(probeCtx, probeTeam.id).some((c) => c.playerId === starProbe.id);
+    starProbe.kboSeasons = POSTING_MIN_SEASONS;
+    const offersAt7 = getMLBPostingCandidates(probeCtx, probeTeam.id).some((c) => c.playerId === starProbe.id);
+    const postingSeasonRuleVerified = !offersAt6 && offersAt7;
+    assert(postingSeasonRuleVerified, `assert(postingSeasonRuleVerified) 실패: 포스팅 7시즌 요건이 적용되지 않았습니다.`);
+
+    // (13) 연간 성장: 잠재력 여유가 큰 21세 1군 주전은 성장, 32세는 성장 없음
+    const youngProbe = domesticProbe[1];
+    const oldProbe = domesticProbe[2];
+    const fixedRng = () => 0.5;
+    youngProbe.age = 21;
+    youngProbe.potential = 100;
+    youngProbe.status = "1GUN";
+    youngProbe.rec = youngProbe.type === "pitcher" ? { ip: 120 } : { pa: 450 };
+    oldProbe.age = 32;
+    oldProbe.potential = 100;
+    const youngDev = youngProbe.applyYearlyDevelopment(fixedRng);
+    const oldDev = oldProbe.applyYearlyDevelopment(fixedRng);
+    const yearlyDevelopmentVerified = youngDev.gain > 0 && oldDev.gain === 0;
+    assert(
+      yearlyDevelopmentVerified,
+      `assert(yearlyDevelopmentVerified) 실패: 연간 성장 (21세 +${youngDev.gain} / 32세 +${oldDev.gain})이 기대와 다릅니다.`
+    );
+
+    // (14) 시즌 회고: 스냅샷 이후 떠난 선수는 '이탈', 새로 합류한 선수는 영입 경로와 함께 '영입'으로 집계
+    let seasonRetroVerified = true;
+    if (gm.Retro) {
+      gm.Retro.takeRosterSnapshot(probeCtx);
+      const leaving = probeTeam.roster2G[0];
+      const otherTeam = probeCtx.kboTeams.find((t) => t.id !== probeTeam.id);
+      const joining = otherTeam.roster2G[0];
+      probeTeam.roster2G = probeTeam.roster2G.filter((p) => p.id !== leaving.id);
+      otherTeam.roster2G.push(leaving);
+      otherTeam.roster2G = otherTeam.roster2G.filter((p) => p.id !== joining.id);
+      joining.acquiredVia = { type: "TRADE", date: probeCtx.currentDate };
+      probeTeam.roster2G.push(joining);
+      const retro = gm.Retro.buildSeasonRetrospective(probeCtx);
+      seasonRetroVerified =
+        Boolean(retro) &&
+        retro.departed.some((d) => d.id === leaving.id) &&
+        retro.acquired.some((a) => a.id === joining.id && a.route === "TRADE") &&
+        Number.isFinite(retro.netDecisionWins) &&
+        Number.isFinite(retro.luckWins);
+    }
+    assert(seasonRetroVerified, `assert(seasonRetroVerified) 실패: 시즌 회고 리포트의 영입/이탈 분류가 올바르지 않습니다.`);
+
     const elapsedMs = Date.now() - startMs;
     const report = {
       ok: true,
@@ -4834,7 +4899,10 @@
         { expr: "assert(luxuryTaxEscalationVerified)", actual: luxuryTaxEscalationVerified, expected: true, passed: luxuryTaxEscalationVerified },
         { expr: "assert(round1PickDropVerified)", actual: round1PickDropVerified, expected: true, passed: round1PickDropVerified },
         { expr: "assert(releaseNoCashRefundVerified)", actual: releaseNoCashRefundVerified, expected: true, passed: releaseNoCashRefundVerified },
-        { expr: "assert(stoveAutomationVerified)", actual: stoveAutomationVerified, expected: true, passed: stoveAutomationVerified }
+        { expr: "assert(stoveAutomationVerified)", actual: stoveAutomationVerified, expected: true, passed: stoveAutomationVerified },
+        { expr: "assert(postingSeasonRuleVerified)", actual: postingSeasonRuleVerified, expected: true, passed: postingSeasonRuleVerified },
+        { expr: "assert(yearlyDevelopmentVerified)", actual: yearlyDevelopmentVerified, expected: true, passed: yearlyDevelopmentVerified },
+        { expr: "assert(seasonRetroVerified)", actual: seasonRetroVerified, expected: true, passed: seasonRetroVerified }
       ]
     };
 
@@ -4874,6 +4942,7 @@
     KBO_SALARY_CAP_LIMIT,
     POSTING_MIN_OVR,
     POSTING_ELITE_STAT,
+    POSTING_MIN_SEASONS,
     POSTING_WINDOW,
     isPostingWindowOpen,
     SALARY_CAP_RATIO,

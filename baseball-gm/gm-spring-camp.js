@@ -621,6 +621,8 @@
 
     let totalArchivedPlayers = 0;
     let totalAgingDecayedPlayers = 0;
+    let totalDevelopedPlayers = 0;
+    let totalBreakouts = 0;
 
     // 선수 1명의 시즌 전환 처리 헬퍼 (커리어 이관 + 나이 +1 + 노쇠화 + rec 초기화)
     const transitionPlayerToNewSeason = (player, isOwnTeam = false, isKboRoster = false) => {
@@ -641,6 +643,16 @@
           });
           totalArchivedPlayers += 1;
         }
+      }
+
+      // 연간 성장 (시즌 기록 리셋 전: 출전 시간 반영) 및 KBO 등록 시즌 +1
+      if (typeof player.applyYearlyDevelopment === "function") {
+        const dev = player.applyYearlyDevelopment(rng);
+        if (dev && dev.gain > 0) totalDevelopedPlayers += 1;
+        if (dev && dev.breakout) totalBreakouts += 1;
+      }
+      if (isKboRoster) {
+        player.kboSeasons = (Number(player.kboSeasons) || 0) + 1;
       }
 
       // 시즌 누적 기록(1군/2군) 및 파생 지표 리셋
@@ -850,6 +862,8 @@
       gmContractEvaluation,
       totalArchivedPlayers,
       totalAgingDecayedPlayers,
+      totalDevelopedPlayers,
+      totalBreakouts,
       npbPoolCount: context.npbPool.length,
       draftPoolCount: context.draftPool.length,
       userTeamExpectation: context.getUserTeam() ? context.getUserTeam().ownerExpectation : null

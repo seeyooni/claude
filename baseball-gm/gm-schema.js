@@ -21,6 +21,19 @@
   /* ═══════════════════════════════════════════════════════════════════════
    * 1. v16.8 코어 상수 및 연산 테이블 (계승)
    * ═══════════════════════════════════════════════════════════════════════ */
+  // 연간 성장 튜닝 값 (tools/balance-check.js 로 OVR 분포를 확인하며 조정)
+  const GROWTH = {
+    rateByAge: [
+      [21, 0.15],
+      [24, 0.12],
+      [27, 0.07],
+      [30, 0.03]
+    ],
+    breakoutMul: 2.0,
+    eliteSlowdownAt: 88, // 이 OVR 이상은 성장 둔화
+    eliteSlowdownMul: 0.4
+  };
+
   const P_KEYS = ["control", "stuff", "velo", "stamina", "movement"];
   const B_KEYS = ["contact", "power", "speed", "defense", "eye"];
 
@@ -199,6 +212,8 @@
       // 나이 및 신체/노쇠화 특성 (v16.8 계승)
       this.age = Number.isFinite(init.age) ? init.age : 20;
       this.potential = Number.isFinite(init.potential) ? init.potential : 75; // 잠재력 상한 (60~110)
+      // KBO 1군·2군 등록 시즌 수 (포스팅 7시즌 요건 등). 게임 시작 시 Setup에서 나이·입단 경로로 추정해 채운다.
+      this.kboSeasons = Number.isFinite(Number(init.kboSeasons)) ? Number(init.kboSeasons) : 0;
       this.iron = Boolean(init.iron);               // 늦게 늙는 몸 (5% 확률, 35세 이후 노쇠 ×0.4)
       this.lateBloom = Boolean(init.lateBloom);     // 대기만성 특성
 
@@ -425,6 +440,66 @@
         const sbAdj = (rec.sb || 0) * 0.018 - (rec.cs || 0) * 0.030;
         return +clamp(batRuns + posAdj + defAdj + sbAdj, -2.0, 12.0).toFixed(2);
       }
+    }
+
+    /**
+     * 시즌 종료 후 연간 성장 (노쇠화 이전에 적용)
+     * - 성장량(OVR) = (잠재력 - 현재 OVR) × 나이별 성장률(GROWTH.rateByAge) × 출전 보정 × 무작위(0.5~1.5)
+     *   출전 보정: 1군 주전(타석 300+ / 투구 80이닝+) 1.25 · 1군 1.0 · 2군·상무 0.85 · 그 외 0.7
+     * - 각성(breakout) 6% (25세 이하 9%): 성장량 ×GROWTH.breakoutMul / 정체(bust) 7%: 성장 없음
+     * - GROWTH.eliteSlowdownAt 이상은 성장 둔화 (95는 드물게, 100은 기적)
+     * - 능력치별 상한 = min(110, 잠재력 + 6). OVR 가중치가 큰 능력치부터 우선 성장
+     */
+    applyYearlyDevelopment(rng = Math.random, options = {}) {
+      const age = this.age || 20;
+      const rateRow = GROWTH.rateByAge.find(([maxAge]) => age <= maxAge);
+      const rate = rateRow ? rateRow[1] : 0;
+      const startOvr = this.getTrueOvr();
+      const headroom = (this.potential || 75) - startOvr;
+      if (rate <= 0 || headroom <= 0) return { gain: 0, breakout: false, bust: false };
+
+      const rec = this.rec || {};
+      const regular = this.type === "pitcher" ? (rec.ip || 0) >= 80 : (rec.pa || 0) >= 300;
+      const status = options.status || this.status;
+      const playMul = regular ? 1.25 : status === "1GUN" ? 1.0 : status === "2GUN" || status === "MILITARY" ? 0.85 : 0.7;
+
+      const roll = rng();
+      const breakoutP = age <= 25 ? 0.09 : 0.06;
+      const bust = roll < 0.07;
+      const breakout = !bust && roll < 0.07 + breakoutP;
+      if (bust) return { gain: 0, breakout: false, bust: true };
+
+      let gainTarget = headroom * rate * playMul * (0.5 + rng()) * (breakout ? GROWTH.breakoutMul : 1);
+      if (startOvr >= GROWTH.eliteSlowdownAt) gainTarget *= GROWTH.eliteSlowdownMul;
+      const targetOvr = Math.min(this.potential, startOvr + Math.max(0, Math.round(gainTarget)));
+      if (targetOvr <= startOvr) return { gain: 0, breakout, bust: false };
+
+      const keys = this.type === "pitcher" ? P_KEYS : B_KEYS;
+      const cap = Math.min(110, (this.potential || 75) + 6);
+      let guard = 0;
+      while (this.getTrueOvr() < targetOvr && guard++ < 80) {
+        // 상한까지 여유가 큰 능력치일수록 우선 성장
+        const room = keys.map((k) => Math.max(0, cap - (this.st[k] || 50)));
+        const totalRoom = room.reduce((a, b) => a + b, 0);
+        if (totalRoom <= 0) break;
+        let r = rng() * totalRoom;
+        let idx = 0;
+        while (idx < keys.length - 1 && r >= room[idx]) {
+          r -= room[idx];
+          idx += 1;
+        }
+        this.st[keys[idx]] = clamp((this.st[keys[idx]] || 50) + 1, 20, cap);
+        // 투수는 구종 숙련도도 함께 성장 (OVR의 14%)
+        if (this.type === "pitcher" && Array.isArray(this.pitches) && this.pitches.length && guard % 2 === 0) {
+          const top = this.pitches.slice().sort((a, b) => b.m - a.m)[0];
+          top.m = clamp((top.m || 50) + 1, 20, 100);
+        }
+      }
+      const gain = this.getTrueOvr() - startOvr;
+      if (gain > 0) {
+        this.lastGrowthNote = breakout ? `[각성 시즌] 연간 성장 OVR +${gain}` : `연간 성장 OVR +${gain}`;
+      }
+      return { gain, breakout, bust: false };
     }
 
     /**
@@ -1027,6 +1102,7 @@
   }
 
   return {
+    GROWTH,
     P_KEYS,
     B_KEYS,
     LABEL,

@@ -1126,6 +1126,7 @@
     const shortTermFee = clamp(round100((candidate.salary || 50000) * 0.18), 8000, 18000);
 
     candidate.teamId = team.id;
+    candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     candidate.salary = shortTermFee;
     candidate.contractYears = 1;
     candidate.status = team.roster1G.length < 28 ? "1GUN" : "2GUN";
@@ -1308,11 +1309,13 @@
     targetTeam.budget += cash;
 
     myPlayer.teamId = targetTeam.id;
+    myPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: myPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     myPlayer.status = targetTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (myPlayer.status === "1GUN") targetTeam.roster1G.push(myPlayer);
     else targetTeam.roster2G.push(myPlayer);
 
     targetPlayer.teamId = userTeam.id;
+    targetPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: targetPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     targetPlayer.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (targetPlayer.status === "1GUN") userTeam.roster1G.push(targetPlayer);
     else userTeam.roster2G.push(targetPlayer);
@@ -2026,6 +2029,7 @@
         userTeam[rk] = userTeam[rk].filter((p) => p.id !== mp.id);
       });
       mp.teamId = targetTeam.id;
+      mp.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: mp.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
       mp.status = targetTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
       if (mp.status === "1GUN") targetTeam.roster1G.push(mp);
       else targetTeam.roster2G.push(mp);
@@ -2041,6 +2045,7 @@
         targetTeam[rk] = targetTeam[rk].filter((p) => p.id !== tp.id);
       });
       tp.teamId = userTeam.id;
+      tp.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: tp.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
       tp.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
       if (tp.status === "1GUN") userTeam.roster1G.push(tp);
       else userTeam.roster2G.push(tp);
@@ -2216,6 +2221,7 @@
     context.npbPool = context.npbPool.filter((p) => p.id !== candidate.id);
 
     candidate.teamId = team.id;
+    candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
     candidate.salary = contractCost;
     candidate.contractYears = 1;
     candidate.isAsianQuarter = true;
@@ -2534,6 +2540,22 @@
               type: "BIENNIAL_SECONDARY_DRAFT",
               report: bdRes.report,
               message: `[${context.currentYear} KBO 2차 드래프트 결산] 35인 보호명단 외 총 ${bdRes.report.totalTransferred}명 구단 간 이적 완료`
+            });
+          }
+        }
+      }
+
+      // 4-C1) 11월 4일 (포스트시즌 마감 다음 날): 시즌 회고 리포트 생성 → 다음 시즌 기준 로스터 스냅샷
+      if (month === 11 && dayOfMonth === 4 && gm && gm.Retro && typeof gm.Retro.buildSeasonRetrospective === "function") {
+        const already = Array.isArray(context.seasonRetros) && context.seasonRetros.some((r) => r.year === context.currentYear);
+        if (!already) {
+          const retro = gm.Retro.buildSeasonRetrospective(context);
+          if (retro) {
+            dailyEvents.push({
+              date: context.currentDate,
+              type: "SEASON_RETRO",
+              report: retro,
+              message: `[시즌 회고 리포트 도착] ${retro.headline} — 데이터 기록실에서 확인하세요.`
             });
           }
         }
@@ -3093,9 +3115,25 @@
       faPool: []
     });
 
+    // KBO 등록 시즌 수 초기 추정 (고졸 19세 · 대졸 23세 입단 기준, 군 복무 18개월 반영 없이 단순 추정)
+    kboTeams.forEach((team) => {
+      team.getAllPlayers().forEach((p) => {
+        if (p.nationality && p.nationality !== "KOR") return;
+        if (!p.kboSeasons) {
+          const entryAge = p.origin === "UNIV" ? 23 : 19;
+          p.kboSeasons = Math.max(0, (p.age || 20) - entryAge);
+        }
+      });
+    });
+
     // 국내 선수 병역 상태 초기 배정 (25세 이상 군필 · 21~24세 무작위 · 20세 이하 미필)
     if (gm.Extensions && typeof gm.Extensions.assignInitialMilitaryStatus === "function") {
       gm.Extensions.assignInitialMilitaryStatus(context);
+    }
+
+    // 시즌 회고 리포트 기준 로스터 (FA 공시 전 부임 시점 로스터)
+    if (gm.Retro && typeof gm.Retro.takeRosterSnapshot === "function") {
+      gm.Retro.takeRosterSnapshot(context);
     }
 
     // 2025년 1월 1일 개막 시점에 즉시 FA 잔여 협상이 가능하도록 초기 FA 시장 자격 선수 공시
