@@ -1074,8 +1074,18 @@
   /**
    * 10개 구단에서 당해 FA 권리 행사 선수(구단별 최대 2~3명, 리그 전체 약 20~28명) 추출 및 공시
    */
+  // 원소속구단 우선협상 기간 (FA 공시일로부터 7일). 기간이 끝나면 타 구단 FA가 시장에 공개된다.
+  const FA_PRIORITY_DAYS = 7;
+
+  function addDaysToDate(dateStr, days) {
+    const [y, m, d] = String(dateStr || "2025-01-01").split("-").map(Number);
+    return new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + days)).toISOString().slice(0, 10);
+  }
+
   function declareEligibleFAPlayers(context, options = {}) {
     markStoveStep(context, "declared");
+    context.faMarketPhase = "PRIORITY";
+    context.faPriorityEndsDate = addDaysToDate(context.currentDate, FA_PRIORITY_DAYS);
     const maxPerTeam = options.maxFAsPerTeam || 3;
     const newlyDeclared = [];
 
@@ -1175,8 +1185,18 @@
     const externalFAs = faPool.filter((p) => p.formerTeamId !== userTeamId);
     const isPriority = context.faMarketPhase === "PRIORITY";
 
+    if (isPriority && !context.faPriorityEndsDate) {
+      context.faPriorityEndsDate = addDaysToDate(context.currentDate, FA_PRIORITY_DAYS);
+    }
+    const priorityEndsDate = isPriority ? context.faPriorityEndsDate : null;
+    const priorityDaysLeft = priorityEndsDate
+      ? Math.max(0, Math.round((Date.parse(priorityEndsDate) - Date.parse(context.currentDate || priorityEndsDate)) / 86400000))
+      : 0;
+
     return {
       phase: context.faMarketPhase,
+      priorityEndsDate,
+      priorityDaysLeft,
       phaseLabel: isPriority
         ? "1단계: 원소속구단 우선협상 기간 (독점 협상 · 보상금/보상선수 면제 · 충성도 보너스 +7%)"
         : "2단계: 전 구단 완전 개방 기간 (Open Market · 타 구단 AI 실시간 경쟁 입찰 및 A/B/C 보상규정 적용)",
@@ -1192,6 +1212,19 @@
    * [요청 3] 원소속구단 우선협상 기간 종료 -> 전 구단 자유협상(OPEN) 시장 전환 (또는 단계 직접 전환)
    * - PRIORITY -> OPEN 전환 시 타 AI 구단들도 자팀 핵심 FA 중 일부와 우선협상 재계약을 시도하여 현실성 부여
    */
+  /**
+   * 우선협상 기간 종료일이 지나면 전 구단 자유협상(Open Market)으로 자동 전환 (AI 원소속 잔류 협상 포함)
+   */
+  function autoOpenFAMarketIfDue(context) {
+    if (!context || context.faMarketPhase !== "PRIORITY") return null;
+    if (!context.faPriorityEndsDate) {
+      context.faPriorityEndsDate = addDaysToDate(context.currentDate, FA_PRIORITY_DAYS);
+      return null;
+    }
+    if (String(context.currentDate) < String(context.faPriorityEndsDate)) return null;
+    return advanceToOpenFAMarket(context, { targetPhase: "OPEN" });
+  }
+
   function advanceToOpenFAMarket(context, options = {}) {
     if (!context) return { ok: false, message: "유효한 게임 컨텍스트가 없습니다." };
     const targetPhase = options.targetPhase || "OPEN";
@@ -1236,7 +1269,7 @@
           const years = prof.demandYears;
           const totalAmount = round100(prof.demandTotal * (0.96 + rng() * 0.08));
           const split = breakdownContract(totalAmount, prof.faGrade, years);
-          formerTeam.budget = Math.max(200000, (formerTeam.budget || 1200000) - split.DP);
+          formerTeam.budget = clamp((formerTeam.budget || 1200000) - split.DP, -3000000, 4000000);
           faPlayer.teamId = formerTeam.id;
           faPlayer.salary = split.annualBaseSalaryManwon;
           faPlayer.contractYears = years;
@@ -1437,7 +1470,7 @@
         phase,
         playerName: faPlayer.name,
         formerTeamName: faPlayer.formerTeamName || faPlayer.formerTeamId,
-        message: `[우선협상 기간 제한] 현재 '원소속구단 우선협상 기간'입니다. 타 구단(${faPlayer.formerTeamName || faPlayer.formerTeamId}) 소속 FA ${faPlayer.name} 선수와 협상하려면 상단의 [전 구단 자유협상(Open Market) 전환]을 먼저 진행해 주세요.`
+        message: `[우선협상 기간 제한] 현재 '원소속구단 우선협상 기간'입니다. 타 구단(${faPlayer.formerTeamName || faPlayer.formerTeamId}) 소속 FA ${faPlayer.name} 선수와는 ${context.faPriorityEndsDate || "우선협상 종료일"} 전 구단 자유협상 개시 후 협상할 수 있습니다.`
       };
     }
 
@@ -2706,6 +2739,8 @@
     evaluateOfferAcceptance,
     getFAMarketPhaseStatus,
     advanceToOpenFAMarket,
+    autoOpenFAMarketIfDue,
+    FA_PRIORITY_DAYS,
     filterAndGroupFAPlayers,
     negotiateFAPlayerDirect,
     calculateFairSalary,

@@ -718,6 +718,35 @@
    *    - 만 27세 이상 미필 주전 선수는 시즌 중 강제 입대 리스크 발생
    * ═══════════════════════════════════════════════════════════════════════ */
   const SANGMU_SERVICE_DAYS = 540; // 18개월 (약 540일)
+  const SANGMU_MAX_PER_TEAM = 4; // 구단당 상무 동시 복무 한도
+
+  /**
+   * 게임 시작 시 국내 선수 병역 상태 초기 배정
+   * - 만 25세 이상: 전원 군필(COMPLETED)
+   * - 만 21~24세: 나이가 많을수록 군필 비중이 높도록 무작위 (21세 20% · 22세 40% · 23세 60% · 24세 80%)
+   * - 만 20세 이하: 미필(UNFULFILLED)
+   */
+  function assignInitialMilitaryStatus(context, rng = Math.random) {
+    if (!context || !Array.isArray(context.kboTeams)) return { completed: 0, unfulfilled: 0 };
+    let completed = 0;
+    let unfulfilled = 0;
+    context.kboTeams.forEach((team) => {
+      team.getAllPlayers().forEach((p) => {
+        if (p.nationality && p.nationality !== "KOR") {
+          p.militaryStatus = "EXEMPT";
+          return;
+        }
+        let done;
+        if (p.age >= 25) done = true;
+        else if (p.age >= 21) done = rng() < (p.age - 20) * 0.2;
+        else done = false;
+        p.militaryStatus = done ? "COMPLETED" : "UNFULFILLED";
+        if (done) completed += 1;
+        else unfulfilled += 1;
+      });
+    });
+    return { completed, unfulfilled };
+  }
 
   /**
    * 선수 병역 상태 초기화/보정 헬퍼
@@ -767,8 +796,8 @@
     if (!team) return { ok: false, reason: "구단을 찾을 수 없습니다." };
 
     if (!Array.isArray(team.militaryList)) team.militaryList = [];
-    if (team.militaryList.length >= 6 && !options.forced) {
-      return { ok: false, reason: "구단당 상무 피닉스 동시 복무 인원 한도(최대 6명)가 가득 찼습니다." };
+    if (team.militaryList.length >= SANGMU_MAX_PER_TEAM && !options.forced) {
+      return { ok: false, reason: `구단당 상무 피닉스 동시 복무 인원 한도(최대 ${SANGMU_MAX_PER_TEAM}명)가 가득 찼습니다.` };
     }
 
     const player = team.getAllPlayers().find((p) => p.id === playerId);
@@ -952,14 +981,16 @@
     const enlistedLogs = [];
 
     context.kboTeams.forEach((team) => {
+      // 유저 구단의 입대는 단장이 직접 결정한다 (자동 입대 대상에서 제외)
+      if (team.id === context.userTeamId) return;
       if (!Array.isArray(team.militaryList)) team.militaryList = [];
-      if (team.militaryList.length >= 4) return;
+      if (team.militaryList.length >= SANGMU_MAX_PER_TEAM) return;
 
       // 2군/육성군 소속 미필 유망주 또는 25~26세 미필 선수를 우선 상무에 입대시켜 병역 리스크 해소
       const candidates = getEligibleSangmuCandidates(team).filter(
         (p) => p.status !== "1GUN" || p.age >= 25
       );
-      const toEnlist = candidates.slice(0, Math.min(2, 4 - team.militaryList.length));
+      const toEnlist = candidates.slice(0, Math.min(2, SANGMU_MAX_PER_TEAM - team.militaryList.length));
       toEnlist.forEach((cand) => {
         const res = enlistPlayerToSangmu(context, team.id, cand.id);
         if (res.ok) {
@@ -1383,21 +1414,58 @@
     "시카고 컵스"
   ];
 
+  // MLB 포스팅 제안 기준: 리그 최상위(약 1%) 스타만 MLB 구단의 관심을 받는다.
+  //   이 게임의 OVR 상한은 실질적으로 83~84, 단일 능력치 상한은 89 수준이므로
+  //   'OVR 90 / 능력치 95'와 같은 희소성을 OVR 82 / 단일 능력치 89로 맞췄다.
+  const POSTING_MIN_OVR = 82;
+  const POSTING_ELITE_STAT = 89;
+  const POSTING_MAX_AGE = 31;
+  const POSTING_MAX_OFFERS = 1; // 구단당 한 해 최대 1명
+  // 포스팅 제안 기간: 시즌 종료 후 11월 1일 ~ 12월 15일 (MLB 포스팅 윈도우)
+  const POSTING_WINDOW = { startMMDD: "11-01", endMMDD: "12-15" };
+
+  function isPostingWindowOpen(context) {
+    const mmdd = String((context && context.currentDate) || "").slice(5, 10);
+    return mmdd >= POSTING_WINDOW.startMMDD && mmdd <= POSTING_WINDOW.endMMDD;
+  }
+  const STAT_LABEL_KO = {
+    control: "제구", stuff: "구위", velo: "구속", stamina: "체력", movement: "변화",
+    contact: "컨택", power: "파워", speed: "주력", defense: "수비", eye: "선구"
+  };
+
+  function getPostingQualification(p) {
+    const ovr = p.getTrueOvr();
+    const stats = Object.entries(p.st || {}).filter(([, v]) => typeof v === "number");
+    const best = stats.sort((a, b) => b[1] - a[1])[0] || [null, 0];
+    if (ovr >= POSTING_MIN_OVR) return { qualified: true, reason: `종합 OVR ${ovr} (리그 최상위)` };
+    if (best[1] >= POSTING_ELITE_STAT) {
+      return { qualified: true, reason: `${STAT_LABEL_KO[best[0]] || best[0]} ${best[1]} (리그 최정상급 단일 능력치)` };
+    }
+    return { qualified: false, reason: null };
+  }
+
   function getMLBPostingCandidates(context, teamId = null) {
     if (!context) return [];
     const team = context.getTeam(teamId || context.userTeamId);
     if (!team) return [];
 
-    // 7년차 이상 또는 OVR 78+ 국내 간판 스타 중 MLB 포스팅 희망 후보 산출
-    const domStars = team
+    // OVR 82+ 또는 단일 능력치 89+ 의 만 31세 이하 국내 스타에게만, 포스팅 기간(11/1~12/15)에 제안이 들어온다
+    if (!isPostingWindowOpen(context)) return [];
+    const list = team
       .getAllPlayers()
-      .filter((p) => (!p.nationality || p.nationality === "KOR") && p.status !== "MILITARY")
-      .sort((a, b) => (b.getTrueOvr() + b.getWar() * 3) - (a.getTrueOvr() + a.getWar() * 3));
+      .filter(
+        (p) =>
+          (!p.nationality || p.nationality === "KOR") &&
+          p.status !== "MILITARY" &&
+          p.age <= POSTING_MAX_AGE &&
+          p.postingRejectedYear !== (context.currentYear || 2025)
+      )
+      .map((p) => ({ p, q: getPostingQualification(p) }))
+      .filter((x) => x.q.qualified)
+      .sort((a, b) => (b.p.getTrueOvr() + b.p.getWar() * 3) - (a.p.getTrueOvr() + a.p.getWar() * 3))
+      .slice(0, POSTING_MAX_OFFERS);
 
-    const qualified = domStars.filter((p) => (p.faYears || 0) >= 6 || p.getTrueOvr() >= 79);
-    const list = (qualified.length > 0 ? qualified : domStars.slice(0, 2)).slice(0, 4);
-
-    return list.map((p) => {
+    return list.map(({ p, q }) => {
       const ovr = p.getTrueOvr();
       const war = Math.max(0, p.getWar());
       const ageFactor = p.age <= 27 ? 1.35 : p.age <= 30 ? 1.10 : 0.85;
@@ -1417,6 +1485,7 @@
         war: p.getWar(),
         mlbSuitor,
         mlbContractTotalM,
+        offerReason: q.reason,
         postingFeeManwon,
         postingFeeEok: +(postingFeeManwon / 10000).toFixed(1)
       };
@@ -1432,14 +1501,14 @@
     if (!player) return { ok: false, reason: "포스팅 대상 선수를 로스터에서 찾을 수 없습니다." };
 
     const cands = getMLBPostingCandidates(context, team.id);
-    const candMeta = cands.find((c) => c.playerId === player.id) || {
-      postingFeeManwon: 1500000,
-      postingFeeEok: 150.0,
-      mlbSuitor: "샌프란시스코 자이언츠",
-      mlbContractTotalM: 65
-    };
+    const candMeta = cands.find((c) => c.playerId === player.id);
+    if (!candMeta) {
+      return { ok: false, reason: `${player.name} 선수에게는 현재 MLB 포스팅 제안이 없습니다.` };
+    }
 
     if (decision === "REJECT") {
+      // 같은 해에는 다시 제안이 오지 않는다 (반복 불허로 사기가 계속 깎이는 것 방지)
+      player.postingRejectedYear = context.currentYear || 2025;
       player.morale = clamp((player.morale ?? 75) - 18, 20, 100);
       player.moraleReason = "MLB 포스팅 해외 진출 불허로 인한 사기 저하";
       return {
@@ -4799,8 +4868,14 @@
     POSTSEASON_REWARDS,
     SECONDARY_DRAFT_FEES,
     SANGMU_SERVICE_DAYS,
+    SANGMU_MAX_PER_TEAM,
+    assignInitialMilitaryStatus,
     FACILITY_SPECS,
     KBO_SALARY_CAP_LIMIT,
+    POSTING_MIN_OVR,
+    POSTING_ELITE_STAT,
+    POSTING_WINDOW,
+    isPostingWindowOpen,
     SALARY_CAP_RATIO,
     LUXURY_TAX_TIERS,
     getSalaryCapLimit,

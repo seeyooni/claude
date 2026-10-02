@@ -2556,6 +2556,16 @@
             stoveEvent("STOVE_FA_DECLARED", `[FA 공시] ${context.currentYear + 1}시즌 FA 자격 선수 ${declared.length || (context.faPool || []).length}명이 시장에 나왔습니다. 1월 15일까지 협상하세요.`);
           }
         }
+        // 원소속 우선협상 기간(공시 후 7일) 종료 → 전 구단 자유협상 자동 개시 (타 구단 FA 공개)
+        if (typeof off.autoOpenFAMarketIfDue === "function") {
+          const openRes = off.autoOpenFAMarketIfDue(context);
+          if (openRes && openRes.ok) {
+            stoveEvent(
+              "FA_OPEN_MARKET_STARTED",
+              `[FA 우선협상 종료] 전 구단 자유협상이 시작되었습니다. 타 구단 원소속 잔류 ${openRes.aiPrioritySignings.length}명 · 시장에 공개된 FA ${(context.faPool || []).length}명`
+            );
+          }
+        }
         if (month === 1 && dayOfMonth === 15) {
           const openFAs = (context.faPool || []).filter((p) => !p.teamId || p.status === "FA");
           if (openFAs.length > 0 && typeof off.runFAMarketSession === "function") {
@@ -3082,6 +3092,11 @@
       draftPool,
       faPool: []
     });
+
+    // 국내 선수 병역 상태 초기 배정 (25세 이상 군필 · 21~24세 무작위 · 20세 이하 미필)
+    if (gm.Extensions && typeof gm.Extensions.assignInitialMilitaryStatus === "function") {
+      gm.Extensions.assignInitialMilitaryStatus(context);
+    }
 
     // 2025년 1월 1일 개막 시점에 즉시 FA 잔여 협상이 가능하도록 초기 FA 시장 자격 선수 공시
     if (gm.Offseason && typeof gm.Offseason.declareEligibleFAPlayers === "function") {

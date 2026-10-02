@@ -1323,7 +1323,9 @@
 
   function renderFASubPanel() {
     const ctx = STATE.ctx;
-    const rawFaList = ctx.faPool || [];
+    // 원소속 우선협상 기간에는 타 구단 FA를 공개하지 않는다 (기간 종료 시 자동 공개)
+    const priorityHidden = (ctx.faMarketPhase || "PRIORITY") === "PRIORITY";
+    const rawFaList = (ctx.faPool || []).filter((p) => !priorityHidden || p.formerTeamId === ctx.userTeamId);
     const tbody = $("faMarketTableBody");
 
     // [요청 3 & 4] 우선협상 기간 단계 컨트롤 + A/B/C 등급별 & 포지션별 세분화 필터 바 렌더링
@@ -1388,7 +1390,7 @@
         const affTabs = [
           { key: "ALL", label: `전체 소속 (${ac.ALL})` },
           { key: "HOME", label: `🏠 내 구단 원소속·우선협상 (${ac.HOME})` },
-          { key: "EXTERNAL", label: `🌐 타 구단 외부 FA (${ac.EXTERNAL})` }
+          { key: "EXTERNAL", label: isPriority ? `🌐 타 구단 외부 FA (${phaseInfo.priorityEndsDate || "우선협상 종료 후"} 공개)` : `🌐 타 구단 외부 FA (${ac.EXTERNAL})` }
         ];
         const posTabs = [
           { key: "ALL", label: `전 포지션 (${pc.ALL})` },
@@ -1416,14 +1418,14 @@
                 <span class="tiny">${esc(phaseInfo.phaseLabel)}</span>
               </div>
               <div class="tiny muted" style="margin-top:3px">
-                내 구단 원소속 FA: <strong>${phaseInfo.homeFACount}명</strong> · 외부 구단 FA: <strong>${phaseInfo.externalFACount}명</strong> · 금년 실시간 타결 누적: <strong>${(ctx.faSignedHistory || []).length}건</strong>
+                내 구단 원소속 FA: <strong>${phaseInfo.homeFACount}명</strong> · 외부 구단 FA: <strong>${isPriority ? "비공개" : `${phaseInfo.externalFACount}명`}</strong> · 금년 실시간 타결 누적: <strong>${(ctx.faSignedHistory || []).length}건</strong>
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               ${
                 isPriority
-                  ? `<button type="button" class="btn-sm primary" data-fa-switch-phase="OPEN">🔓 우선협상 종료 → 전 구단 자유협상(Open Market) 전환</button>`
-                  : `<button type="button" class="btn-xs ghost" data-fa-switch-phase="PRIORITY">🔒 원소속 우선협상 단계로 전환</button>`
+                  ? `<span class="scout-rank-tag tnum">⏳ 우선협상 종료 ${esc(phaseInfo.priorityEndsDate || "-")} (D-${phaseInfo.priorityDaysLeft || 0}) · 이후 타 구단 FA 자동 공개</span>`
+                  : `<span class="scout-rank-tag tnum">🔓 자유협상 진행 중 · 1월 15일 FA 시장 마감</span>`
               }
             </div>
           </div>
@@ -2754,8 +2756,8 @@
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">6. ✈️ KBO-MLB 포스팅 시스템 (7년차+ 간판 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
-              <div class="tiny">포스팅 승인 시 선수 유출 리스크 대신 구단 금고에 거액의 MLB 이적료(+100억~300억 원)와 구단주 신임도(+12)가 즉시 유입됩니다.</div>
+              <h3 class="panel-title" style="font-size:15px">6. ✈️ KBO-MLB 포스팅 시스템 (리그 최정상급 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
+              <div class="tiny">포스팅 기간(11월 1일~12월 15일)에 종합 OVR ${ext.POSTING_MIN_OVR || 82} 이상 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 89} 이상인 만 31세 이하 국내 선수 중 1명에게만 MLB 구단의 제안이 들어옵니다. 승인 시 이적료(+100억~300억 원)와 구단주 신임도(+12)가 유입되고, 불허하면 그해에는 다시 제안이 오지 않습니다(사기 -18).</div>
             </div>
           </div>
           <div class="scout-grid">
@@ -2773,6 +2775,7 @@
                     <span class="sep">·</span>
                     <span>예상 포스팅 이적료: <strong class="text-good">+${pc.postingFeeEok}억 원</strong></span>
                   </div>
+                  <div class="tiny muted" style="margin:4px 0">제안 사유: ${esc(pc.offerReason || "-")}</div>
                   <div class="scout-actions" style="display:flex;gap:6px">
                     <button type="button" class="btn-xs primary" data-exec-mlb-posting="${pc.playerId}" data-posting-decision="APPROVE">
                       MLB 포스팅 승인 (+${pc.postingFeeEok}억 유입)
@@ -2783,7 +2786,12 @@
                   </div>
                 </div>
               `
-              ).join("") || `<div class="empty-box">현재 MLB 포스팅 신청 대상 선수가 없습니다.</div>`
+              ).join("") ||
+              `<div class="empty-box">${
+                ext.isPostingWindowOpen && !ext.isPostingWindowOpen(ctx)
+                  ? "MLB 포스팅 제안은 11월 1일~12월 15일에만 들어옵니다."
+                  : `현재 MLB 구단의 포스팅 제안을 받은 선수가 없습니다. (OVR ${ext.POSTING_MIN_OVR || 82}+ 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 89}+ 필요)`
+              }</div>`
             }
           </div>
           ${
@@ -4220,7 +4228,8 @@
             <div><strong>2. 2025년 1월 1일 개막 &amp; 일자 진행:</strong> 2025년 1월 1일부터 FA·연봉·외국인·코치·트레이드가 즉시 활성화되며, <strong>+1일 진행</strong> 및 <strong>+7일 스킵</strong>을 지원합니다.</div>
             <div><strong>3. 2024 순위 기반 체급 &amp; 역순 예산:</strong> 1위 KIA(전력 78 / 예산 120억)부터 10위 키움(전력 67 / 예산 175억)까지 역순 예산이 배정됩니다.</div>
             <div><strong>3-1. 구단 재정 (난이도: 쉬움·보통·어려움):</strong> 예산은 한 해 운영 봉투이고 <strong>여유 예산 = 예산 − 연봉총액</strong>입니다. FA 계약금·첫해 연봉·시설 투자·현금 트레이드는 여유 예산 안에서만 가능합니다. 매 시즌 예산은 <strong>모기업 지원금(리그 평균 연봉 × 직전 순위 역순 배율: 1위 1.20배 ~ 10위 1.65배) + 이월금</strong>으로 정해지고, 정규시즌에는 매주 자체 수입과 운영비가 정산됩니다. 적자(여유 예산 마이너스)로 주간 정산을 맞으면 구단주 신임도가 깎이며, 상위권을 지키려면 구단주 증액 요청이 필요할 수 있습니다.</div>
-            <div><strong>3-2. 전력 평준화 제도:</strong> 신인 드래프트·2차 드래프트·외국인 선수 영입은 순위 역순으로 진행됩니다. 경쟁균형세 상한은 리그 평균 상위 40인 연봉의 120%이며, 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 150% + 9단계 하락입니다. 스토브리그 업무를 직접 처리하지 않으면 마감일(12/1 연봉·FA 공시, 1/15 FA 시장, 1/31 외국인)에 자동 처리됩니다.</div>
+            <div><strong>3-2. 전력 평준화 제도:</strong> 신인 드래프트·2차 드래프트·외국인 선수 영입은 순위 역순으로 진행됩니다. 경쟁균형세 상한은 리그 평균 상위 40인 연봉의 120%이며, 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 150% + 9단계 하락입니다. 스토브리그 업무를 직접 처리하지 않으면 마감일(12/1 연봉·FA 공시, 1/15 FA 시장, 1/31 외국인)에 자동 처리됩니다. FA 공시 후 7일은 원소속구단 우선협상 기간으로, 타 구단 FA는 기간이 끝나야 공개됩니다.</div>
+            <div><strong>3-3. 상무 · MLB 포스팅:</strong> 시작 시 만 25세 이상은 군필, 21~24세는 군필·미필이 섞여 있습니다. 상무는 구단당 4명까지이며 우리 구단 입대는 단장이 직접 결정합니다. MLB 포스팅 제안은 11월 1일~12월 15일에 리그 최정상급(OVR 82+ 또는 단일 능력치 89+, 만 31세 이하) 선수 중 구단당 1명에게만 들어옵니다.</div>
             <div><strong>4. 9월 3주차 신인 드래프트 &amp; 스카우트 파견:</strong> 고교 1~3학년 및 대학 리그에 스카우트를 파견해 유망주 오차(Fog of War)를 줄이고 9월 3주차에 드래프트를 진행합니다.</div>
             <div><strong>5. 외국인 선수 엄격 제한 &amp; 6주 대체 외인:</strong> 외국인은 육성군 등록이 절대 불가하며 방출 시 영구 퇴출됩니다. 6주 이상 장기 부상 시 6주 단기 대체 외국인을 영입할 수 있습니다.</div>
           </div>
@@ -4612,7 +4621,10 @@
     if (btnDeclareFA) {
       btnDeclareFA.addEventListener("click", () => {
         const list = GM.Offseason.declareEligibleFAPlayers(STATE.ctx);
-        showToast(`KBO FA 자격 선수 ${STATE.ctx.faPool.length}명이 공시되었습니다!`, "info");
+        showToast(
+          `KBO FA 자격 선수 ${STATE.ctx.faPool.length}명이 공시되었습니다! ${STATE.ctx.faPriorityEndsDate}까지 원소속구단 우선협상 기간입니다.`,
+          "info"
+        );
         renderAll();
       });
     }
@@ -4620,6 +4632,13 @@
     const btnRunFAMarket = $("btnRunFAMarket");
     if (btnRunFAMarket) {
       btnRunFAMarket.addEventListener("click", () => {
+        if ((STATE.ctx.faMarketPhase || "PRIORITY") === "PRIORITY" && STATE.ctx.faPool.length > 0) {
+          showToast(
+            `원소속구단 우선협상 기간(${STATE.ctx.faPriorityEndsDate || "-"}까지)에는 FA 시장 입찰을 마감할 수 없습니다.`,
+            "bad"
+          );
+          return;
+        }
         STATE.lastFAReport = GM.Offseason.runFAMarketSession(STATE.ctx, STATE.userFABids, {
           autoDeclareFromRosters: STATE.ctx.faPool.length === 0
         });
