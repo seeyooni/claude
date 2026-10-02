@@ -2573,7 +2573,7 @@
                             <tr>
                               <td><strong>${esc(item.formerTeamName)}</strong></td>
                               <td><span class="pos-code">${esc(p.pos)}</span></td>
-                              <td><button type="button" class="player-link" data-open-player="${p.id}">${esc(p.name)}</button></td>
+                              <td><button type="button" class="player-link" data-player-modal="${p.id}" data-team-id="${item.formerTeamId}">${esc(p.name)}</button></td>
                               <td class="tnum">${p.age}세</td>
                               <td class="tnum"><strong>${esc(rep.ovrDisplay)}</strong></td>
                               <td class="tnum">${esc(rep.potentialDisplay)}</td>
@@ -3811,9 +3811,9 @@
       <div style="display:grid;gap:16px">
         <div class="weekly-summary-banner">
           <strong>구단 R&amp;D 3대 시설 실시간 보너스:</strong>
-          선수단 부상 발생률 <strong>-${Math.round((1 - facEff.injuryChanceMult) * 100)}%</strong> ·
-          2군 유망주 TP/성장 속도 <strong>+${Math.round((facEff.futuresGrowthMult - 1) * 100)}%</strong> ·
-          스카우트 Fog of War 오차 축소 <strong>-${Math.round((1 - facEff.scoutNoiseMult) * 100)}%</strong>
+          선수단 부상 발생률 <strong>-${Math.round((1 - facEff.injuryRiskMul) * 100)}%</strong> ·
+          2군 유망주 TP/성장 속도 <strong>+${Math.round((facEff.tpGainMul - 1) * 100)}%</strong> ·
+          스카우트 레벨 <strong>Lv.${ctx.scoutLevel || 1}</strong> · 파견 정원 <strong>${facEff.maxScouts}명</strong>
         </div>
 
         <div class="grid-3col">
@@ -3826,7 +3826,7 @@
               <h3 class="panel-title">🌱 2군 퓨처스 &amp; 육성군 유망주 맞춤형 집중 훈련 배정 (${futuresPlayers.length}명)</h3>
               <div class="tiny">2군 바이오메카닉스 랩과 연동되어 매주 퓨처스리그 경기 후 지정된 능력치가 가속 성장합니다.</div>
             </div>
-            <button type="button" class="btn-sm primary" data-futures-auto-assign="1"> 취약 능력치 자동 일괄 배정</button>
+            <button type="button" class="btn-sm primary" data-auto-futures-train="1">취약 능력치 자동 일괄 배정</button>
           </div>
           <div class="table-wrap" style="max-height:300px;overflow-y:auto">
             <table class="gm-table compact">
@@ -3849,7 +3849,7 @@
                     <tr>
                       <td><span class="inline-tag">${esc(p.status)}</span></td>
                       <td><span class="pos-code">${esc(p.pos)}</span></td>
-                      <td><button type="button" class="player-link" data-open-player="${p.id}">${esc(p.name)}</button></td>
+                      <td><button type="button" class="player-link" data-player-modal="${p.id}" data-team-id="${userTeam.id}">${esc(p.name)}</button></td>
                       <td class="tnum">${p.age}세</td>
                       <td class="tnum"><strong>${p.getTrueOvr()}</strong></td>
                       <td class="tnum">${p.potential}</td>
@@ -3969,13 +3969,13 @@
               </select>
               <button type="button" class="btn-xs ghost" data-rgm-set-archetype="1">성향 변경 적용</button>
               <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">🚨 기용 거부(벤치 방치) 면담 모달</button>
-              <button type="button" class="btn-xs" data-open-mandate-modal="FA_20">📋 보호선수 감독 외압 면담</button>
+              <button type="button" class="btn-xs" data-open-protection-mandate="FA_20">📋 보호선수 감독 외압 면담</button>
             </div>
           </div>
 
           <div class="weekly-summary-banner" style="margin-bottom:10px">
             <strong>현재 감독 운영 기조:</strong> ${esc(curArch.desc || "1군 즉시전력감 및 베테랑 중심 기용")} ·
-            프런트 윈나우 지수 <strong>${rgm.winNowIndex}</strong> vs 미래 팜 건전성 <strong>${rgm.farmSystemHealth}</strong>
+            선수단 프런트 신뢰도 <strong>${rgm.clubTrustScore}</strong> · 미래 팜 시스템 건전성 <strong>${rgm.farmSystemHealth}</strong>
           </div>
 
           <div class="grid-2col">
@@ -4029,8 +4029,8 @@
                     </div>
                     <div class="tiny" style="margin:6px 0">${esc(p.moraleReason || "출전 기회 및 입지 불만")}</div>
                     <div class="scout-actions">
-                      <button type="button" class="btn-xs primary" data-morale-action="PEP_TALK" data-morale-player="${p.id}">단장 1:1 면담 (0.2억)</button>
-                      <button type="button" class="btn-xs ghost" data-morale-action="PROMOTE_1G" data-morale-player="${p.id}">1군 기용 보장</button>
+                      <button type="button" class="btn-xs primary" data-resolve-morale="${p.id}" data-morale-action="PEP_TALK">단장 1:1 면담 (0.2억)</button>
+                      <button type="button" class="btn-xs ghost" data-resolve-morale="${p.id}" data-morale-action="PROMOTE_1G">1군 기용 보장</button>
                     </div>
                   </div>
                 `
