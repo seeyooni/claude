@@ -1119,6 +1119,28 @@
     `;
 
     // [시스템 4 & 요청 3] 고교 1~3학년 · 대학 리그 · 독립야구단 스카우트 파견 컨트롤 렌더링
+    // 위임 지명(4~10R) 방침
+    const policyEl = $("draftPolicyBox");
+    if (policyEl && GM.Draft && typeof GM.Draft.getDraftPolicy === "function") {
+      const pol = GM.Draft.getDraftPolicy(ctx);
+      const O = GM.Draft.DRAFT_POLICY_OPTIONS;
+      const sel = (id, opts, cur) =>
+        `<select id="${id}" class="gm-select">${Object.entries(opts).map(([k, v]) => `<option value="${k}" ${k === cur ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+      const posSel = (i) =>
+        `<select id="draftPolicyPos${i}" class="gm-select"><option value="">—</option>${Object.entries(O.posGroups).map(([k, v]) => `<option value="${k}" ${pol.positions[i] === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
+      policyEl.innerHTML = `
+        <div class="report-box" style="margin:12px 0">
+          <strong>📝 스카우트팀 위임 지명 방침 (4~10라운드)</strong>
+          <span class="tiny muted"> · 스카우트팀은 자기 추정치에 이 방침을 더해 지명합니다. 지명 결과는 번복할 수 없습니다.</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px">
+            <label class="tiny">육성 방향 ${sel("draftPolicyFocus", O.focus, pol.focus)}</label>
+            <label class="tiny">출신 ${sel("draftPolicyOrigin", O.origin, pol.origin)}</label>
+            <label class="tiny">포지션 우선순위 ${posSel(0)} ${posSel(1)} ${posSel(2)}</label>
+            <button type="button" class="btn-xs primary" data-save-draft-policy="1">방침 저장</button>
+          </div>
+        </div>`;
+    }
+
     // 청소년 국가대표 경기 단장 직관 (연 3회)
     const youthEl = $("youthViewingBox");
     if (youthEl && GM.Draft && typeof GM.Draft.getYouthViewingEvents === "function") {
@@ -5222,6 +5244,21 @@
       if (e.target.closest("[data-set-franchise]") && GM.NonFA) {
         const res = GM.NonFA.setFranchisePlayer(STATE.ctx, STATE.ctx.userTeamId, ($("franchiseSelect") || {}).value || null);
         showToast(res.ok ? res.summary : res.reason, res.ok ? "good" : "bad");
+        renderAll();
+        return;
+      }
+
+      if (e.target.closest("[data-save-draft-policy]") && GM.Draft && GM.Draft.setDraftPolicy) {
+        const pol = GM.Draft.setDraftPolicy(STATE.ctx, {
+          focus: $("draftPolicyFocus").value,
+          origin: $("draftPolicyOrigin").value,
+          positions: [0, 1, 2].map((i) => $(`draftPolicyPos${i}`).value).filter(Boolean)
+        });
+        const O = GM.Draft.DRAFT_POLICY_OPTIONS;
+        showToast(
+          `위임 지명 방침 저장: ${O.focus[pol.focus]} · ${O.origin[pol.origin]}${pol.positions.length ? ` · 우선 ${pol.positions.map((x) => O.posGroups[x]).join(" > ")}` : ""}`,
+          "good"
+        );
         renderAll();
         return;
       }

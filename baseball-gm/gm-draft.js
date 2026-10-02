@@ -25,6 +25,39 @@
   // 1~3라운드는 단장이 직접 지명, 4라운드부터는 스카우트팀 위임 (단장 거부권 없음)
   const DELEGATE_FROM_ROUND = 4;
 
+  // 위임 지명 방침 (단장이 정하고 스카우트팀이 따른다)
+  const DRAFT_POLICY_OPTIONS = {
+    focus: { BALANCED: "균형", UPSIDE: "잠재력 우선", READY: "즉시전력 우선" },
+    origin: { ANY: "출신 무관", HS: "고졸 선호", UNIV: "대졸 선호" },
+    posGroups: { SP: "선발투수", RP: "불펜투수", C: "포수", IF: "내야수", OF: "외야수" }
+  };
+  const POS_GROUP_OF = { SP: "SP", RP: "RP", CL: "RP", CP: "RP", C: "C", "1B": "IF", "2B": "IF", "3B": "IF", SS: "IF", LF: "OF", CF: "OF", RF: "OF", DH: "IF" };
+
+  function getDraftPolicy(context) {
+    const p = (context && context.draftPolicy) || {};
+    return {
+      focus: DRAFT_POLICY_OPTIONS.focus[p.focus] ? p.focus : "BALANCED",
+      origin: DRAFT_POLICY_OPTIONS.origin[p.origin] ? p.origin : "ANY",
+      positions: Array.isArray(p.positions) ? p.positions.filter((x) => DRAFT_POLICY_OPTIONS.posGroups[x]).slice(0, 3) : []
+    };
+  }
+
+  function setDraftPolicy(context, policy = {}) {
+    context.draftPolicy = getDraftPolicy({ draftPolicy: policy });
+    return context.draftPolicy;
+  }
+
+  /** 방침에 따른 가산점 (스카우트팀 추정치 기준) */
+  function policyBonus(policy, rec, prospect) {
+    let bonus = 0;
+    if (policy.focus === "UPSIDE") bonus += (rec.perceivedPot || 0) * 0.25 - (rec.perceivedOvr || 0) * 0.15;
+    if (policy.focus === "READY") bonus += (rec.perceivedOvr || 0) * 0.25 - (rec.perceivedPot || 0) * 0.15;
+    if (policy.origin !== "ANY" && prospect.origin === policy.origin) bonus += 4;
+    const idx = policy.positions.indexOf(POS_GROUP_OF[prospect.pos] || prospect.pos);
+    if (idx >= 0) bonus += [5, 3.5, 2][idx];
+    return bonus;
+  }
+
   // 라운드별 표준 계약금 테이블 (단위: 만원, 10,000 = 1억원)
   const ROUND_BONUS_TABLE = {
     1:  { min: 30000, max: 50000 }, // 1R: 3억 ~ 5억원
@@ -498,8 +531,14 @@
       let isPass = false;
 
       if (isUserTeam && round >= DELEGATE_FROM_ROUND) {
-        // 스카우트팀 위임 지명: 스카우트팀의 추정치(스카우트 품질에 따른 Fog of War) 기준 최고 평가 유망주
-        const recs = getRecommendedPicks(context, team.id, 1, round);
+        // 스카우트팀 위임 지명: 스카우트팀 추정치(스카우트 품질에 따른 Fog of War) + 단장 방침 가산점 기준 최고 평가 유망주
+        const policy = getDraftPolicy(context);
+        const recs = getRecommendedPicks(context, team.id, 25, round)
+          .map((r) => {
+            const pr = context.draftPool.find((p) => p.id === r.playerId);
+            return { ...r, policyScore: r.totalScore + (pr ? policyBonus(policy, r, pr) : 0) };
+          })
+          .sort((a, b) => b.policyScore - a.policyScore);
         const topRecId = recs[0] && recs[0].playerId;
         chosenProspect = context.draftPool.find((p) => p.id === topRecId) || context.draftPool[0];
         selectionMethod = "SCOUT_DELEGATED";
@@ -806,6 +845,9 @@
   return {
     TOTAL_ROUNDS,
     DELEGATE_FROM_ROUND,
+    DRAFT_POLICY_OPTIONS,
+    getDraftPolicy,
+    setDraftPolicy,
     YOUTH_VIEWING_LIMIT,
     YOUTH_VIEWING_WINDOW_DAYS,
     getYouthViewingEvents,
