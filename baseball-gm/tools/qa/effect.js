@@ -5,7 +5,7 @@ const DATES=(process.argv[2]||'2025-01-03,2025-05-20,2025-09-23,2025-11-06,2025-
 (async()=>{
   const b=await chromium.launch(); const p=await b.newPage({viewport:{width:1400,height:900}});
   const errs=[]; let cur=''; p.on('pageerror',x=>errs.push(cur+' :: '+x.message+' @ '+String(x.stack||'').split('\n').slice(1,4).join(' | '))); p.on('dialog',d=>d.accept());
-  await p.goto('file://'+require('path').resolve(__dirname,'../../dist/kbo-gm.html')); await p.waitForTimeout(900);
+  await p.goto('file://'+require('path').resolve(__dirname,'../../dist/kbo-gm.html')+'?notutorial=1'); await p.waitForTimeout(900);
   await p.click('[data-lobby-new="slot_1"]'); await p.click('#btnConfirmCreateGM'); await p.waitForTimeout(1500);
   await p.evaluate(()=>{window.__fx=0; const mo=new MutationObserver(()=>window.__fx++); mo.observe(document.getElementById('gmToast'),{childList:true,subtree:true,characterData:true}); mo.observe(document.getElementById('gmModalBackdrop'),{attributes:true,childList:true,subtree:true});});
   const keys=await allKeys(p);

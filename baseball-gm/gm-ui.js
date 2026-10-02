@@ -398,6 +398,39 @@
     renderNotifBadge();
   }
 
+  /* 예상하지 못한 화면 오류를 알림함에 남긴다 (날짜·화면·오류 위치) — 재현이 어려운 오류를 플레이어가 알려줄 수 있도록 */
+  const errorLog = [];
+  function recordUnexpectedError(err, source) {
+    const ctx = STATE.ctx;
+    const where = (() => {
+      try {
+        const { area, sub } = currentAreaSub();
+        return sub ? `${area.label} · ${sub.label}` : area.label;
+      } catch (e) {
+        return "-";
+      }
+    })();
+    const stackLine = String((err && err.stack) || "").split("\n").slice(1, 3).map((x) => x.trim()).join(" | ");
+    const entry = {
+      date: ctx ? ctx.currentDate : "",
+      where,
+      message: String((err && err.message) || err),
+      stack: stackLine,
+      source
+    };
+    errorLog.push(entry);
+    if (errorLog.length > 20) errorLog.shift();
+    try {
+      showToast(`화면 오류가 났습니다 (${entry.date} · ${where}). 알림함에 기록했습니다: ${entry.message}`, "bad");
+      STATE.notifLog[0].msg += ` [위치: ${stackLine || "알 수 없음"}]`;
+    } catch (e) {}
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("error", (ev) => recordUnexpectedError(ev.error || ev.message, "error"));
+    window.addEventListener("unhandledrejection", (ev) => recordUnexpectedError(ev.reason, "promise"));
+    window.__kboGmErrorLog = errorLog;
+  }
+
   function renderNotifBadge() {
     const badge = $("notifCount");
     if (!badge) return;
@@ -691,34 +724,84 @@
 
     const briefing = GM.Assistant.generateDailyBriefing(ctx);
     ctx.todaysBriefing = briefing;
-    const must = briefing.mustDo || [];
-    const rec = briefing.recommended || [];
-    const note = $("foDecisionNote");
-    if (note) note.textContent = `필수 ${must.length} · 추천 ${rec.length}`;
-
-    if (!must.length && !rec.length) {
-      panel.innerHTML = `<div class="empty-box">지금 결정할 일이 없습니다. 날짜를 진행해도 됩니다.</div>`;
-      return;
-    }
+    const org = GM.FrontOffice && typeof GM.FrontOffice.organizeBriefing === "function"
+      ? GM.FrontOffice.organizeBriefing(ctx, briefing)
+      : { oneOff: briefing.mustDo || [], advice: briefing.recommended || [], watch: [], hiddenCount: 0 };
     const cleanTitle = (t) => String(t || "").replace(/^\[[^\]]*\]\s*/, "");
-    const row = (t, isMust) => `
-      <li class="decision ${isMust ? "is-must" : "is-rec"}">
-        <span class="it ${isMust ? "it-action" : "it-opinion"}">${isMust ? "결정 · 필수" : "비서 추천"}</span>
-        <div>
-          <p class="decision-title">${esc(cleanTitle(t.title))}</p>
-          <div class="decision-desc">${esc(t.desc)}</div>
-        </div>
-        <div class="decision-actions">
-          <button type="button" class="btn-xs ${isMust ? "primary" : ""}" data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}" data-assistant-task-id="${esc(t.id)}">직접 검토</button>
-          <button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(t.id)}" title="비서가 무난한 기본안으로 처리합니다">${esc(String(t.quickActionLabel || "맡기기").replace(/^[^\p{L}\p{N}]+/u, ""))}</button>
-        </div>
-      </li>`;
-    panel.innerHTML = `
-      <ul class="decision-list">
-        ${must.map((t) => row(t, true)).join("")}
-        ${rec.map((t) => row(t, false)).join("")}
-      </ul>
-    `;
+    const targetAttrs = (t) =>
+      t.target
+        ? `data-goto-tab="${esc(t.target.tab)}" data-goto-sub="${esc(t.target.sub || "")}" data-goto-f5="${t.target.f5 ? t.target.f5.join(",") : ""}"`
+        : `data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}" data-assistant-task-id="${esc(t.id)}"`;
+
+    // 1) 한 번 처리하면 끝나는 일
+    const note = $("foDecisionNote");
+    if (note) note.textContent = org.oneOff.length ? `${org.oneOff.length}건` : "";
+    panel.innerHTML = org.oneOff.length
+      ? `<ul class="decision-list">${org.oneOff
+          .map(
+            (t) => `
+        <li class="decision ${t.priority === "MUST_DO" ? "is-must" : "is-rec"}">
+          <span class="it ${t.priority === "MUST_DO" ? "it-action" : "it-warn"}">${t.priority === "MUST_DO" ? "결정 · 필수" : "결정"}</span>
+          <div>
+            <p class="decision-title">${esc(cleanTitle(t.title))}</p>
+            <div class="decision-desc">${esc(t.desc)}</div>
+          </div>
+          <div class="decision-actions">
+            <button type="button" class="btn-xs primary" ${targetAttrs(t)}>직접 처리</button>
+            <button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(t.id)}" title="비서가 무난한 기본안으로 처리합니다">비서에게 맡기기</button>
+          </div>
+        </li>`
+          )
+          .join("")}</ul>`
+      : `<div class="empty-box">지금 처리할 일이 없습니다. 날짜를 진행해도 됩니다.</div>`;
+
+    // 2) 비서 추천 — 보류할 수 있고, 오래된 추천은 뒤로 밀린다
+    const adv = $("foAdvice");
+    if (adv) {
+      const an = $("foAdviceNote");
+      if (an) an.textContent = org.hiddenCount ? `다른 추천 ${org.hiddenCount}건 대기` : "";
+      adv.innerHTML = org.advice.length
+        ? org.advice
+            .map(
+              (r) => `
+          <li class="decision is-rec">
+            <span class="it it-opinion">${r.kind === "SEASONAL" ? "시기 조언" : "비서 추천"}</span>
+            <div>
+              <p class="decision-title">${esc(cleanTitle(r.title))}</p>
+              <div class="decision-desc">${esc(r.desc)}${r.ageDays >= 7 ? ` <span class="tiny muted">· ${r.ageDays}일째</span>` : ""}</div>
+            </div>
+            <div class="decision-actions">
+              <button type="button" class="btn-xs" ${targetAttrs(r)}>보기</button>
+              ${r.kind === "ASSISTANT" && r.quickActionLabel ? `<button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(r.id)}">맡기기</button>` : ""}
+              <button type="button" class="btn-xs ghost" data-fo-snooze="${esc(r.id)}" title="14일 동안 이 추천을 숨깁니다">2주 보류</button>
+            </div>
+          </li>`
+            )
+            .join("")
+        : `<li class="empty-box">지금은 추천할 일이 없습니다.</li>`;
+    }
+
+    // 3) 계속 지켜볼 지표
+    const watchEl = $("foWatch");
+    if (watchEl) {
+      const order = { bad: 0, warn: 1, ok: 2 };
+      watchEl.innerHTML = org.watch
+        .slice()
+        .sort((a, b) => order[a.status] - order[b.status])
+        .map(
+          (w) => `
+        <li class="watch-item is-${w.status}">
+          <span class="watch-dot" aria-hidden="true"></span>
+          <button type="button" class="w-link" data-goto-tab="${esc(w.target.tab)}" data-goto-sub="${esc(w.target.sub || "")}" data-goto-f5="${w.target.f5 ? w.target.f5.join(",") : ""}">
+            <span class="w-label">${esc(w.label)}</span>
+            <span class="sr-only">${w.status === "bad" ? "경고" : w.status === "warn" ? "주의" : "정상"}</span>
+            <div class="w-note">${esc(w.note)}</div>
+          </button>
+          <span class="w-val">${esc(w.value)}</span>
+        </li>`
+        )
+        .join("");
+    }
   }
 
   // 단장실: 앞으로 60일 일정·마감
@@ -2980,7 +3063,7 @@
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">2. KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
-              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 자동 보호(외국인 · FA 자격 · 입단 1~3년차 · 군보류 이력 4년차 · 상무 복무 중) 외 35인 보호. 비FA 다년계약 선수는 자동 보호가 아니므로 명단에 넣어야 합니다 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
+              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 자동 보호(외국인 · FA 자격 · 입단 1~3년차 · 군보류 이력 4년차) 외 35인 보호. 비FA 다년계약 선수와 상무 복무 중인 선수도 명단에 넣어야 보호됩니다 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
             </div>
             <button type="button" class="btn-sm primary" data-run-biennial-draft="1" ${bdGate.allowed && !thisYearBd ? "" : "disabled"}>
               ${
@@ -5105,6 +5188,196 @@
     });
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+   * 튜토리얼 — 새 단장 부임 직후 화면 각 부분을 차례로 짚어 주는 안내 (⚙ 메뉴에서 다시 보기)
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const TUTORIAL_STEPS = [
+    {
+      title: "단장님, 부임을 환영합니다",
+      body:
+        "이 게임에서 당신은 KBO 구단의 단장입니다. 경기는 감독이 하고, 단장은 <strong>돈·사람·계약</strong>을 결정합니다.<br>목표는 구단주가 정한 성적을 내면서 예산과 신임을 지키는 것입니다. 2분이면 화면 읽는 법을 익힐 수 있습니다.",
+      target: null
+    },
+    {
+      title: "상태 바 — 매일 확인하는 숫자",
+      body: "오늘 날짜, 순위, <strong>예산 · 연봉 · 여유 예산</strong>, 그리고 구단주·감독·팬의 신임이 있습니다. 신임이 40 아래로 떨어지면 빨갛게 바뀝니다. '재정'을 누르면 장부와 구단주 증액 요청이 열립니다.",
+      target: ".status-bar"
+    },
+    {
+      title: "다음 마감과 날짜 진행",
+      body: "가장 가까운 마감이 D-day로 보입니다. 누르면 그 업무 화면으로 갑니다.<br>오른쪽 <strong>+1일 · +1주 · +4주</strong>로 날짜를 넘깁니다. 마감을 놓치면 비서가 무난한 기본안으로 자동 처리합니다.",
+      target: "#hdrNextDeadline"
+    },
+    {
+      title: "6개 업무 영역",
+      body: "단장실(브리핑) · 선수단 · 스카우팅 · 계약·이적 · 구단 운영 · 기록실. 이름 옆 빨간 숫자는 그 영역에서 <strong>꼭 결정해야 할 일</strong>의 개수입니다.",
+      target: ".area-nav"
+    },
+    {
+      title: "결정 대기함 — 한 번 처리하면 끝나는 일",
+      body: "드래프트 지명, 스토브리그 계약처럼 <strong>마감이 있고 한 번 처리하면 사라지는 일</strong>만 모았습니다. '직접 처리'로 화면에 가거나, '비서에게 맡기기'로 기본안을 고를 수 있습니다.",
+      target: "#foDecisionTitle",
+      box: "section"
+    },
+    {
+      title: "비서 추천 — 의견입니다",
+      body: "비서의 제안과 시기별 조언입니다. <span class=\"it it-opinion\">의견</span> 표시가 붙은 정보는 <strong>따를지 말지 단장이 판단</strong>합니다. 지금 필요 없으면 '2주 보류'를 누르세요. 오래 떠 있던 추천은 저절로 쉬고 다른 추천이 올라옵니다.",
+      target: "#foAdviceTitle",
+      box: "section"
+    },
+    {
+      title: "계속 지켜볼 지표",
+      body: "엔트리·부상, 여유 예산, 구단주 신임, 경쟁균형세 상한, 2군 육성처럼 <strong>매일 바뀌는 상태</strong>입니다. 초록은 정상, 노랑은 주의, 빨강은 경고. 누르면 관련 화면으로 갑니다.",
+      target: "#foWatchTitle",
+      box: "section"
+    },
+    {
+      title: "받은 보고 — 누가, 얼마나 믿을 만한가",
+      body: "보고마다 출처와 정보 유형이 붙습니다.<br><span class=\"it it-fact\">확정</span> 기록·경기 결과 &nbsp; <span class=\"it it-est\">추정</span> 스카우트 평가(오차 있음) &nbsp; <span class=\"it it-opinion\">의견</span> 이해관계가 있는 주장<br>스카우팅 화면의 <span class=\"est-val\">60~66</span> 같은 범위 숫자도 추정치입니다. 스카우트 수준·조사도·단장 직관이 오르면 범위가 좁아집니다.",
+      target: "#foInboxTitle",
+      box: "section"
+    },
+    {
+      title: "마감 · 일정",
+      body: "앞으로 60일 안의 마감과 행사입니다. 1월이라면 <strong>연봉 재계약 · FA · 외국인 계약</strong>이 차례로 마감됩니다. 계약·이적 화면 위쪽의 '스토브리그 단계'에서도 진행 중/예정/완료를 볼 수 있습니다.",
+      target: "#foTimelineTitle",
+      box: "section"
+    },
+    {
+      title: "설정 메뉴",
+      body: "저장 · 불러오기, 어두운 화면, 게임 설명, <strong>이 튜토리얼 다시 보기</strong>가 여기 있습니다. 상단의 '저장' 버튼으로 언제든 빠르게 저장하세요.",
+      target: "#btnSystemMenu"
+    },
+    {
+      title: "첫 할 일",
+      body: "1) 계약·이적 → 연봉 재계약과 FA 시장을 살펴보세요.<br>2) 스카우팅 → 외국인 · 아시아쿼터 계약을 확인하세요.<br>3) 구단 운영 → 코치진과 스프링캠프를 정하세요.<br>준비가 끝나면 +1주로 날짜를 넘기며 3월 22일 개막을 맞이하세요. 행운을 빕니다, 단장님.",
+      target: null
+    }
+  ];
+  let tutorialIdx = -1;
+  let tutorialReturnFocus = null;
+
+  function tutorialEls() {
+    let root = $("gmTutorial");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "gmTutorial";
+      root.innerHTML = `
+        <div class="tut-spot" aria-hidden="true"></div>
+        <div class="tut-card" role="dialog" aria-modal="true" aria-labelledby="tutTitle">
+          <div class="tut-step tiny" id="tutStep"></div>
+          <h2 class="tut-title" id="tutTitle"></h2>
+          <div class="tut-body" id="tutBody"></div>
+          <div class="tut-actions">
+            <button type="button" class="btn-xs ghost" data-tut="skip">건너뛰기</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn-xs" data-tut="prev">이전</button>
+            <button type="button" class="btn-xs primary" data-tut="next">다음</button>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+      root.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-tut]");
+        if (!b) return;
+        const act = b.dataset.tut;
+        if (act === "next") showTutorialStep(tutorialIdx + 1);
+        else if (act === "prev") showTutorialStep(tutorialIdx - 1);
+        else endTutorial();
+      });
+      root.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          endTutorial();
+        } else if (e.key === "ArrowRight") showTutorialStep(tutorialIdx + 1);
+        else if (e.key === "ArrowLeft") showTutorialStep(tutorialIdx - 1);
+        else if (e.key === "Tab") {
+          const f = Array.from(root.querySelectorAll("button"));
+          const i = f.indexOf(document.activeElement);
+          e.preventDefault();
+          f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+        }
+      });
+    }
+    return root;
+  }
+
+  function showTutorialStep(i) {
+    if (i >= TUTORIAL_STEPS.length) return endTutorial(true);
+    if (i < 0) i = 0;
+    tutorialIdx = i;
+    const step = TUTORIAL_STEPS[i];
+    const root = tutorialEls();
+    root.hidden = false;
+    $("tutStep").textContent = `${i + 1} / ${TUTORIAL_STEPS.length}`;
+    $("tutTitle").textContent = step.title;
+    $("tutBody").innerHTML = step.body;
+    root.querySelector('[data-tut="prev"]').disabled = i === 0;
+    root.querySelector('[data-tut="next"]').textContent = i === TUTORIAL_STEPS.length - 1 ? "시작하기" : "다음";
+
+    // 단장실 화면에서 안내 (대상이 보이도록)
+    if (STATE.activeTab !== "pennant" && step.target && step.target.startsWith("#fo")) navigateTo({ tab: "pennant" }, { focus: false });
+    let el = step.target ? document.querySelector(step.target) : null;
+    if (el && step.box) el = el.closest(step.box) || el;
+    const spot = root.querySelector(".tut-spot");
+    const card = root.querySelector(".tut-card");
+    if (el && el.offsetParent !== null) {
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect();
+      const pad = 6;
+      Object.assign(spot.style, { display: "block", top: `${r.top - pad}px`, left: `${r.left - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+      // 카드는 대상 아래(공간이 없으면 위)에 둔다
+      const cw = Math.min(420, window.innerWidth - 32);
+      const below = r.bottom + 16 + 260 < window.innerHeight;
+      const top = below ? r.bottom + 14 : Math.max(16, r.top - 14 - card.offsetHeight);
+      const left = Math.min(Math.max(16, r.left), window.innerWidth - cw - 16);
+      Object.assign(card.style, { top: `${top}px`, left: `${left}px`, width: `${cw}px`, transform: "none" });
+    } else {
+      Object.assign(spot.style, { display: "block", top: "50%", left: "50%", width: "0px", height: "0px" });
+      Object.assign(card.style, { top: "50%", left: "50%", width: `${Math.min(460, window.innerWidth - 32)}px`, transform: "translate(-50%, -50%)" });
+    }
+    root.querySelector('[data-tut="next"]').focus();
+  }
+
+  function startTutorial() {
+    tutorialReturnFocus = document.activeElement;
+    closeSystemMenu();
+    const bd = $("gmModalBackdrop");
+    if (bd) bd.hidden = true;
+    navigateTo({ tab: "pennant" }, { focus: false });
+    showTutorialStep(0);
+  }
+
+  function endTutorial(completed) {
+    const root = $("gmTutorial");
+    if (root) root.hidden = true;
+    tutorialIdx = -1;
+    if (STATE.ctx) STATE.ctx.tutorialDone = true;
+    try {
+      localStorage.setItem("kbo_gm_tutorial_done", "1");
+    } catch (e) {}
+    if (completed) showToast("튜토리얼을 마쳤습니다. ⚙ 메뉴에서 언제든 다시 볼 수 있습니다.", "good");
+    if (tutorialReturnFocus && typeof tutorialReturnFocus.focus === "function") tutorialReturnFocus.focus();
+  }
+
+  // 새 단장 부임 직후 한 번 자동으로 띄운다 (이미 본 저장 파일이면 생략)
+  function maybeStartTutorial() {
+    if (!STATE.ctx || STATE.ctx.tutorialDone) return;
+    let seen = false;
+    try {
+      seen = localStorage.getItem("kbo_gm_tutorial_done") === "1";
+    } catch (e) {}
+    // 이 브라우저에서 이미 끝까지 봤거나, 자동 점검(?notutorial)일 때는 생략 — ⚙ 메뉴에서 다시 볼 수 있다
+    if (seen || /[?&]notutorial\b/.test(String(location.search))) return;
+    setTimeout(startTutorial, 400);
+  }
+
+  // 화면 크기가 바뀌면 강조 위치를 다시 계산
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", () => {
+      if (tutorialIdx >= 0) showTutorialStep(tutorialIdx);
+    });
+  }
+
   function closeSystemMenu() {
     const menu = $("systemMenu");
     const btn = $("btnSystemMenu");
@@ -5149,6 +5422,9 @@
 
     const notifBtn = $("btnNotifInbox");
     if (notifBtn) notifBtn.addEventListener("click", openNotifInbox);
+
+    const tutBtn = $("btnReplayTutorial");
+    if (tutBtn) tutBtn.addEventListener("click", startTutorial);
 
     const guideBtn = $("btnOpenGuideInGame");
     if (guideBtn) guideBtn.addEventListener("click", () => {
@@ -5263,6 +5539,7 @@
           "good"
         );
         enterDashboardWithContext(newCtx);
+        maybeStartTutorial();
       });
     }
 
@@ -5835,6 +6112,14 @@
         const tg = resolveTaskTarget(null, gotoEl.dataset.gotoTab, gotoEl.dataset.gotoSub);
         if (f5) tg.f5 = f5;
         navigateTo(tg);
+        return;
+      }
+      // 비서 추천 2주 보류
+      const snoozeBtn = e.target.closest("[data-fo-snooze]");
+      if (snoozeBtn && GM.FrontOffice) {
+        const until = GM.FrontOffice.snooze(STATE.ctx, snoozeBtn.dataset.foSnooze);
+        showToast(`이 추천을 ${until}까지 숨깁니다. 그동안 다른 추천이 올라옵니다.`, "info");
+        renderTodaysTodoPanel();
         return;
       }
       // 받은 보고 출처 필터

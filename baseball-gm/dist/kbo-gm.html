@@ -2197,6 +2197,112 @@
       font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
+
+    /* ── 계속 지켜볼 지표 ── */
+    .watch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .watch-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      border-top: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+    .watch-item:first-child {
+      border-top: none;
+    }
+    .watch-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--good);
+    }
+    .watch-item.is-warn .watch-dot {
+      background: var(--warn);
+    }
+    .watch-item.is-bad .watch-dot {
+      background: var(--bad);
+    }
+    .watch-item .w-label {
+      font-weight: 600;
+    }
+    .watch-item .w-note {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .watch-item .w-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .watch-item button.w-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .watch-item button.w-link:hover .w-label {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    /* ── 튜토리얼 ── */
+    #gmTutorial {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+    }
+    #gmTutorial[hidden] {
+      display: none;
+    }
+    .tut-spot {
+      position: fixed;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 0 0 9999px rgba(14, 17, 23, 0.62);
+      outline: 2px solid var(--accent);
+      transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+      pointer-events: none;
+    }
+    .tut-card {
+      position: fixed;
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--e3);
+      padding: var(--sp-4);
+    }
+    .tut-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      margin: 4px 0 8px;
+    }
+    .tut-body {
+      font-size: var(--fs-sm);
+      line-height: 1.65;
+      color: var(--text-main);
+    }
+    .tut-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: var(--sp-4);
+    }
+
+    /* 그리드 칸이 넓은 표 때문에 늘어나지 않도록 (표는 .table-wrap 안에서 가로 스크롤) */
+    .grid-2col > *,
+    .fo-grid > *,
+    .grid-3col > * {
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -2434,6 +2540,7 @@
           <div class="menu-label">게임</div>
           <button type="button" role="menuitem" data-main-tab="storage">저장 · 불러오기</button>
           <button type="button" role="menuitem" id="btnThemeToggle">어두운 화면</button>
+          <button type="button" role="menuitem" id="btnReplayTutorial">튜토리얼 다시 보기</button>
           <button type="button" role="menuitem" id="btnOpenGuideInGame">게임 설명</button>
           <button type="button" role="menuitem" id="btnBackToLobby">슬롯 화면으로 나가기</button>
           <hr>
@@ -2496,10 +2603,17 @@
         <div>
           <section class="fo-card" aria-labelledby="foDecisionTitle">
             <div class="fo-card-head">
-              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함</h2>
+              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함 <span class="tiny muted">한 번 처리하면 끝나는 일</span></h2>
               <span class="fo-card-note" id="foDecisionNote"></span>
             </div>
             <div id="todaysTodoPanel"></div>
+          </section>
+          <section class="fo-card" aria-labelledby="foAdviceTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foAdviceTitle">비서 추천 <span class="it it-opinion">의견</span></h2>
+              <span class="fo-card-note" id="foAdviceNote"></span>
+            </div>
+            <ul id="foAdvice" class="decision-list"></ul>
           </section>
           <section class="fo-card" aria-labelledby="foInboxTitle">
             <div class="fo-card-head">
@@ -2521,6 +2635,13 @@
               <span class="fo-card-note">앞으로 60일</span>
             </div>
             <ol id="foTimeline" class="timeline"></ol>
+          </section>
+          <section class="fo-card" aria-labelledby="foWatchTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foWatchTitle">계속 지켜볼 지표</h2>
+              <span class="fo-card-note">매일 바뀌는 상태</span>
+            </div>
+            <ul id="foWatch" class="watch-list"></ul>
           </section>
           <section class="fo-card" aria-labelledby="foStatusTitle">
             <div class="fo-card-head">
@@ -12094,9 +12215,10 @@
     }
 
     const curYear = (context && context.currentYear) || 2025;
-    const allPlayers = team.getAllPlayers();
+    // 상무 복무 중인 선수도 지명 대상 (실제 규정: 군보류 선수는 입단 1~3년차·4년차 군보류 이력일 때만 자동 보호)
+    const allPlayers = [...team.getAllPlayers(), ...(team.militaryList || [])];
 
-    // 자동 보호 대상: 외국인/아시아쿼터, 입단 1~3년차(+군보류 이력 4년차), FA 자격 선수, 상무 복무 중
+    // 자동 보호 대상: 외국인/아시아쿼터, 입단 1~3년차(+군보류 이력 4년차), FA 자격 선수 (상무 복무 중 선수도 지명 대상)
     const autoExemptIds = new Set();
     const autoProtectedPlayers = [];
     const candidatesFor35 = [];
@@ -12108,8 +12230,7 @@
       // 실제 KBO 규정(2025 개정): 입단 1~3년차 자동 보호 + 입단 4년차 중 군보류 이력 선수
       const isRecentRookie = entryYears <= 3 || (entryYears === 4 && Boolean(p.enlistedDate));
       const isFaEligible = (p.faYears || 0) >= 8 || p.status === "FA_POOL";
-      // 게임 단순화: 상무 복무 중인 선수는 소속 이동 처리를 피하려고 자동 보호 (실제 규정은 4년차 이상 군보류 선수도 지명 대상)
-      const isMilitary = p.status === "MILITARY";
+      const isMilitary = false; // 상무 복무 중이어도 자동 보호하지 않는다 (지명되면 새 구단 소속으로 복무를 이어감)
       // 비FA 다년계약 선수는 자동 보호가 아니다 → 35인 명단 한 자리를 차지한다 (실제 규정)
 
       if (isForeign || isRecentRookie || isFaEligible || isMilitary) {
@@ -12276,9 +12397,11 @@
         }
 
         if (!chosenEntry) {
+          // 상무 복무 중인 선수는 남은 복무 기간만큼 당장 못 쓰므로 가치를 깎는다
+          const serviceDiscount = (pl) => (pl.status === "MILITARY" ? ((pl.militaryDaysLeft || 0) / 365) * 6 : 0);
           availableTargets.sort((a, b) => {
-            const scoreA = a.player.getTrueOvr() * 0.65 + (a.player.potential || 70) * 0.35 - Math.max(0, a.player.age - 28) * 1.2;
-            const scoreB = b.player.getTrueOvr() * 0.65 + (b.player.potential || 70) * 0.35 - Math.max(0, b.player.age - 28) * 1.2;
+            const scoreA = a.player.getTrueOvr() * 0.65 + (a.player.potential || 70) * 0.35 - Math.max(0, a.player.age - 28) * 1.2 - serviceDiscount(a.player);
+            const scoreB = b.player.getTrueOvr() * 0.65 + (b.player.potential || 70) * 0.35 - Math.max(0, b.player.age - 28) * 1.2 - serviceDiscount(b.player);
             return scoreB - scoreA;
           });
           chosenEntry = availableTargets[0];
@@ -12292,8 +12415,8 @@
         protectionMap[formerTeam.id].exposedPool = protectionMap[formerTeam.id].exposedPool.filter(
           (p) => p.id !== player.id
         );
-        ["roster1G", "roster2G", "rosterDev"].forEach((rk) => {
-          formerTeam[rk] = formerTeam[rk].filter((p) => p.id !== player.id);
+        ["roster1G", "roster2G", "rosterDev", "militaryList"].forEach((rk) => {
+          if (Array.isArray(formerTeam[rk])) formerTeam[rk] = formerTeam[rk].filter((p) => p.id !== player.id);
         });
 
         // 양도금 이체 (100억~250억 예산 밸런스 유지)
@@ -12305,7 +12428,11 @@
         player.teamId = pickingTeam.id;
         player.acquiredVia = { type: "SECONDARY_DRAFT", date: context.currentDate || null, fromTeamId: player.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
         player.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
-        if (pickingTeam.roster1G.length < 28 && round === 1) {
+        if (player.status === "MILITARY") {
+          // 상무 복무 중인 선수: 남은 복무를 마치고 새 구단으로 복귀
+          if (!Array.isArray(pickingTeam.militaryList)) pickingTeam.militaryList = [];
+          pickingTeam.militaryList.push(player);
+        } else if (pickingTeam.roster1G.length < 28 && round === 1) {
           player.status = "1GUN";
           pickingTeam.roster1G.push(player);
         } else if (pickingTeam.roster2G.length < 30) {
@@ -15991,10 +16118,13 @@
 
     // (M-4) FA 영입 시 20인/25인 보호명단 제출 및 격년 2차 드래프트 35인 보호명단 작성
     const store = ensureCustomProtectionStore(userTeam);
+    // 보호명단은 실제로 쓰이는 시기에만 '필수': 2차 드래프트(격년 11월 1~14일) 직전, FA 시장(12/1~1/15)에서 20인 명단이 비었을 때
+    // (예전에는 20인 명단이 덜 찼다는 이유만으로 1년 내내 필수로 떠 있었다)
+    const inFAMarket = mm === 12 || (mm === 1 && dd <= 15);
     const needProtectionCheck =
-      store.FA_20.length < 20 ||
-      (isBiennialDraftYear(context.currentYear) && (mm === 11 || curWeek === 28) && store.DRAFT_35.length < 35);
-    if (needProtectionCheck || (isStoveSeason && store.FA_20.length === 0)) {
+      (isBiennialDraftYear(context.currentYear) && mm === 11 && dd <= 14 && store.DRAFT_35.length < 35) ||
+      (inFAMarket && store.FA_20.length < 20);
+    if (needProtectionCheck) {
       mustDo.push({
         id: "PROTECTION_LIST_SUBMIT",
         priority: "MUST_DO",
@@ -22538,10 +22668,160 @@
     });
   }
 
+  /* ───────────────────────────────────────────────────────────────
+   * 단장실 정리: '한 번 처리하면 끝나는 일' vs '계속 지켜볼 지표' vs '비서 추천'
+   *   - 한 번 처리하면 끝: 마감이 있는 결정 (드래프트, 스토브리그 계약, 6주 대체 외인, 시기별 보호명단)
+   *   - 계속 지켜볼 지표: 상태가 계속 바뀌는 것 (엔트리·부상, 예산, 신임도, 경쟁균형세, 2군 육성, 스카우트 배정, 사기)
+   *   - 비서 추천: 지표에서 나온 제안 + 시기별 조언. 보류(14일)할 수 있고, 오래 떠 있던 추천은 뒤로 밀려 다른 추천이 올라온다
+   * ─────────────────────────────────────────────────────────────── */
+  const ONE_OFF_TASKS = new Set(["DRAFT_WEEK", "STOVE_LEAGUE_RENEWAL_FA", "FOREIGN_6WK_ACTION", "PROTECTION_LIST_SUBMIT"]);
+  const SNOOZE_DAYS = 14;
+
+  function addDays(dateStr, n) {
+    const d = new Date(Date.parse(dateStr) + n * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function ensureFOState(context) {
+    if (!context.foState || typeof context.foState !== "object") context.foState = { snoozed: {}, firstSeen: {} };
+    if (!context.foState.snoozed) context.foState.snoozed = {};
+    if (!context.foState.firstSeen) context.foState.firstSeen = {};
+    return context.foState;
+  }
+
+  function isSnoozed(context, id) {
+    const st = ensureFOState(context);
+    const until = st.snoozed[id];
+    return Boolean(until && String(context.currentDate) < until);
+  }
+
+  /** 추천·지표를 SNOOZE_DAYS 동안 숨긴다 */
+  function snooze(context, id, days = SNOOZE_DAYS) {
+    const st = ensureFOState(context);
+    st.snoozed[id] = addDays(context.currentDate, days);
+    return st.snoozed[id];
+  }
+
+  // 계속 지켜볼 지표 (상태: ok · warn · bad)
+  function buildWatchlist(context) {
+    const g = gm();
+    const team = context.getUserTeam();
+    if (!team) return [];
+    const items = [];
+    const push = (id, label, value, status, note, target) => items.push({ id, label, value, status, note, target });
+    const eok = (m) => `${(m / 10000).toFixed(1)}억`;
+
+    const inj1 = team.roster1G.filter((p) => p.injury && p.injury.active).length;
+    const r1 = team.roster1G.length;
+    push("WATCH_ENTRY", "1군 엔트리 · 부상", `${r1}/28명 · 부상 ${inj1}명`, r1 < 28 || inj1 >= 3 ? "bad" : inj1 > 0 ? "warn" : "ok",
+      inj1 ? "부상자가 있으면 2군 콜업으로 빈자리를 메우세요." : "정상 가동 중", { tab: "roster", sub: "1GUN" });
+
+    const room = team.budget - team.getTotalPayroll();
+    push("WATCH_BUDGET", "여유 예산", room < 0 ? `−${eok(-room)}` : eok(room), room < 0 ? "bad" : room < 50000 ? "warn" : "ok",
+      room < 0 ? "적자 상태로 주간 정산을 맞으면 구단주 신임이 떨어집니다." : "FA 계약금·시설 투자·현금 트레이드에 쓸 수 있는 돈", { tab: "pennant" });
+
+    const trust = Math.round(team.ownerTrust ?? 80);
+    push("WATCH_OWNER", "구단주 신임", `${trust}`, trust < 40 ? "bad" : trust < 55 ? "warn" : "ok", trust < 55 ? "계약 만료 때 재계약이 위험해집니다." : "안정", { tab: "pennant" });
+
+    const ext = g.Extensions;
+    if (ext && typeof ext.getTop40DomesticPayroll === "function" && typeof ext.getSalaryCapLimit === "function") {
+      const top40 = ext.getTop40DomesticPayroll(team, context);
+      const cap = ext.getSalaryCapLimit(context);
+      const pct = cap > 0 ? Math.round((top40 / cap) * 100) : 0;
+      push("WATCH_CAP", "경쟁균형세 상한 대비", `${pct}%`, pct > 100 ? "bad" : pct >= 92 ? "warn" : "ok",
+        pct > 100 ? "12월 10일 심사에서 제재금이 나옵니다." : `상한 ${eok(cap)}`, { tab: "offseason", sub: "front5", f5: [5] });
+    }
+
+    const futures = [...(team.roster2G || []), ...(team.rosterDev || [])];
+    const unassigned = futures.filter((p) => !p.trainingFocus).length;
+    push("WATCH_FUTURES", "2군 육성 과제 미지정", `${unassigned}/${futures.length}명`, unassigned > futures.length * 0.5 ? "warn" : "ok",
+      "과제를 정하면 2군 성장 속도가 빨라집니다.", { tab: "facilities" });
+
+    const morale = ext && typeof ext.getMoraleIssuePlayers === "function" ? ext.getMoraleIssuePlayers(team) : [];
+    push("WATCH_MORALE", "사기 저하 · 트레이드 요구", `${morale.length}명`, morale.length >= 3 ? "bad" : morale.length > 0 ? "warn" : "ok",
+      morale.length ? `${morale[0].name} 사기 ${morale[0].morale}` : "문제 없음", { tab: "manager" });
+
+    const disp = context.scoutDispatch || { maxScouts: 4, allocation: {} };
+    const alloc = disp.allocation || {};
+    const used = Object.values(alloc).reduce((s, v) => s + (Number(v) || 0), 0);
+    const max = disp.maxScouts || 4;
+    push("WATCH_SCOUT", "아마추어 스카우트 배정", `${used}/${max}명`, used < max ? "warn" : "ok", used < max ? "남는 스카우트가 있습니다." : "모두 배정됨", { tab: "offseason", sub: "draft" });
+
+    return items;
+  }
+
+  // 시기별 조언 (달력 기준, 같은 시기에는 같은 조언이 나오지만 날짜가 지나면 바뀐다)
+  function seasonalAdvice(context) {
+    const d = String(context.currentDate);
+    const m = Number(d.slice(5, 7));
+    const day = Number(d.slice(8, 10));
+    const out = [];
+    const add = (id, title, desc, target) => out.push({ id, title, desc, target, kind: "SEASONAL" });
+    if (m === 1 || m === 2) add("ADV_CAMP", "스프링캠프 전 코치진과 캠프 장소를 정하세요", "캠프 장소·훈련 방향에 따라 시즌 초 컨디션과 성장이 달라집니다.", { tab: "offseason", sub: "camp" });
+    if (m === 3 && day < 22) add("ADV_OPENING", "개막 엔트리를 점검하세요", "28명 엔트리와 선발 로테이션을 개막 전에 확정하세요.", { tab: "roster", sub: "1GUN" });
+    if (m >= 4 && m <= 6) add("ADV_EARLY", "시즌 초 기록을 보고 2군 콜업 후보를 고르세요", "2군 성적이 좋은 유망주는 1군 경험으로 더 빨리 큽니다.", { tab: "roster", sub: "2GUN" });
+    if (m === 7) add("ADV_TRADE_DEADLINE", "7월 말 트레이드 마감 전 보강을 검토하세요", "순위 경쟁 중이라면 부족한 포지션을, 처졌다면 유망주 확보를 노릴 때입니다.", { tab: "offseason", sub: "trade" });
+    if (m === 8 || (m === 9 && day < 23)) add("ADV_DRAFT_PREP", "드래프트 방침과 스카우트 파견을 점검하세요", "청소년 대표 직관과 스카우트 조사도가 지명 정확도를 좌우합니다.", { tab: "offseason", sub: "draft" });
+    if (m === 10) add("ADV_POSTSEASON", "포스트시즌 결과에 따라 겨울 예산을 계획하세요", "배당금과 구단주 신임이 다음 시즌 예산에 반영됩니다.", { tab: "pennant" });
+    if (m === 11) add("ADV_NONFA", "FA 직전 핵심 선수와 비FA 다년계약을 검토하세요", "12월 1일 공시 전에 묶지 않으면 다른 구단과 경쟁해야 합니다.", { tab: "offseason", sub: "front5", f5: [5] });
+    if (m === 12) add("ADV_CAP", "12월 10일 경쟁균형세 심사 전에 상한을 확인하세요", "상한을 넘으면 제재금, 연속 초과면 1라운드 지명권이 밀립니다.", { tab: "offseason", sub: "front5", f5: [5] });
+    return out;
+  }
+
+  /**
+   * 브리핑(업무 비서) + 지표 + 시기별 조언을 단장실 3구역으로 나눈다
+   * 반환: { oneOff: [task], watch: [item], advice: [rec] }
+   */
+  function organizeBriefing(context, briefing) {
+    const st = ensureFOState(context);
+    const all = [...((briefing && briefing.mustDo) || []), ...((briefing && briefing.recommended) || [])];
+    const oneOff = all.filter((t) => ONE_OFF_TASKS.has(t.id));
+    const recs = all.filter((t) => !ONE_OFF_TASKS.has(t.id)).map((t) => ({ ...t, kind: "ASSISTANT" }));
+    const advicePool = [...recs, ...seasonalAdvice(context)].filter((r) => !isSnoozed(context, r.id));
+    // 노출 시간 기준 순환: 화면에 실제로 보인 날부터 세고, 21일 넘게 보였는데 손대지 않은 추천은 14일 쉬고,
+    // 그 사이 기다리던 추천이 올라온다 (같은 추천이 계속 고정되지 않도록). 비서 추천은 한 번에 2개까지.
+    const today = String(context.currentDate);
+    const ROTATE_AFTER = 21;
+    const MAX_ASSISTANT = 2;
+    const shownAge = (r) => (st.firstSeen[r.id] ? Math.max(0, Math.round((Date.parse(today) - Date.parse(st.firstSeen[r.id])) / 86400000)) : null);
+    advicePool.forEach((r) => {
+      const a = shownAge(r);
+      if (r.kind === "ASSISTANT" && a != null && a >= ROTATE_AFTER) {
+        snooze(context, r.id, SNOOZE_DAYS);
+        delete st.firstSeen[r.id];
+      }
+    });
+    const fresh = advicePool.filter((r) => !isSnoozed(context, r.id));
+    const seasonal = fresh.filter((r) => r.kind === "SEASONAL").slice(0, 1);
+    // 이미 보이던 추천 먼저(순서 유지), 그다음 기다리던 추천
+    const assistant = fresh
+      .filter((r) => r.kind === "ASSISTANT")
+      .sort((x, y) => {
+        const ax = shownAge(x), ay = shownAge(y);
+        if ((ax == null) !== (ay == null)) return ax == null ? 1 : -1;
+        return (ay || 0) - (ax || 0);
+      })
+      .slice(0, MAX_ASSISTANT);
+    const advice = [...seasonal, ...assistant].map((r) => {
+      if (!st.firstSeen[r.id]) st.firstSeen[r.id] = today;
+      return { ...r, ageDays: shownAge(r) || 0 };
+    });
+    // 조건이 사라진 추천의 기록 정리
+    Object.keys(st.firstSeen).forEach((id) => {
+      if (!advicePool.some((r) => r.id === id)) delete st.firstSeen[id];
+    });
+    const watch = buildWatchlist(context).map((w) => ({ ...w, snoozed: isSnoozed(context, w.id) }));
+    return { oneOff, watch, advice, hiddenCount: Math.max(0, fresh.length - advice.length) };
+  }
+
   return {
     INFO_TYPES,
     getUpcomingCalendar,
-    getStovePhases
+    getStovePhases,
+    organizeBriefing,
+    buildWatchlist,
+    snooze,
+    isSnoozed
   };
 });
 
@@ -22947,6 +23227,39 @@
     renderNotifBadge();
   }
 
+  /* 예상하지 못한 화면 오류를 알림함에 남긴다 (날짜·화면·오류 위치) — 재현이 어려운 오류를 플레이어가 알려줄 수 있도록 */
+  const errorLog = [];
+  function recordUnexpectedError(err, source) {
+    const ctx = STATE.ctx;
+    const where = (() => {
+      try {
+        const { area, sub } = currentAreaSub();
+        return sub ? `${area.label} · ${sub.label}` : area.label;
+      } catch (e) {
+        return "-";
+      }
+    })();
+    const stackLine = String((err && err.stack) || "").split("\n").slice(1, 3).map((x) => x.trim()).join(" | ");
+    const entry = {
+      date: ctx ? ctx.currentDate : "",
+      where,
+      message: String((err && err.message) || err),
+      stack: stackLine,
+      source
+    };
+    errorLog.push(entry);
+    if (errorLog.length > 20) errorLog.shift();
+    try {
+      showToast(`화면 오류가 났습니다 (${entry.date} · ${where}). 알림함에 기록했습니다: ${entry.message}`, "bad");
+      STATE.notifLog[0].msg += ` [위치: ${stackLine || "알 수 없음"}]`;
+    } catch (e) {}
+  }
+  if (typeof window !== "undefined") {
+    window.addEventListener("error", (ev) => recordUnexpectedError(ev.error || ev.message, "error"));
+    window.addEventListener("unhandledrejection", (ev) => recordUnexpectedError(ev.reason, "promise"));
+    window.__kboGmErrorLog = errorLog;
+  }
+
   function renderNotifBadge() {
     const badge = $("notifCount");
     if (!badge) return;
@@ -23240,34 +23553,84 @@
 
     const briefing = GM.Assistant.generateDailyBriefing(ctx);
     ctx.todaysBriefing = briefing;
-    const must = briefing.mustDo || [];
-    const rec = briefing.recommended || [];
-    const note = $("foDecisionNote");
-    if (note) note.textContent = `필수 ${must.length} · 추천 ${rec.length}`;
-
-    if (!must.length && !rec.length) {
-      panel.innerHTML = `<div class="empty-box">지금 결정할 일이 없습니다. 날짜를 진행해도 됩니다.</div>`;
-      return;
-    }
+    const org = GM.FrontOffice && typeof GM.FrontOffice.organizeBriefing === "function"
+      ? GM.FrontOffice.organizeBriefing(ctx, briefing)
+      : { oneOff: briefing.mustDo || [], advice: briefing.recommended || [], watch: [], hiddenCount: 0 };
     const cleanTitle = (t) => String(t || "").replace(/^\[[^\]]*\]\s*/, "");
-    const row = (t, isMust) => `
-      <li class="decision ${isMust ? "is-must" : "is-rec"}">
-        <span class="it ${isMust ? "it-action" : "it-opinion"}">${isMust ? "결정 · 필수" : "비서 추천"}</span>
-        <div>
-          <p class="decision-title">${esc(cleanTitle(t.title))}</p>
-          <div class="decision-desc">${esc(t.desc)}</div>
-        </div>
-        <div class="decision-actions">
-          <button type="button" class="btn-xs ${isMust ? "primary" : ""}" data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}" data-assistant-task-id="${esc(t.id)}">직접 검토</button>
-          <button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(t.id)}" title="비서가 무난한 기본안으로 처리합니다">${esc(String(t.quickActionLabel || "맡기기").replace(/^[^\p{L}\p{N}]+/u, ""))}</button>
-        </div>
-      </li>`;
-    panel.innerHTML = `
-      <ul class="decision-list">
-        ${must.map((t) => row(t, true)).join("")}
-        ${rec.map((t) => row(t, false)).join("")}
-      </ul>
-    `;
+    const targetAttrs = (t) =>
+      t.target
+        ? `data-goto-tab="${esc(t.target.tab)}" data-goto-sub="${esc(t.target.sub || "")}" data-goto-f5="${t.target.f5 ? t.target.f5.join(",") : ""}"`
+        : `data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}" data-assistant-task-id="${esc(t.id)}"`;
+
+    // 1) 한 번 처리하면 끝나는 일
+    const note = $("foDecisionNote");
+    if (note) note.textContent = org.oneOff.length ? `${org.oneOff.length}건` : "";
+    panel.innerHTML = org.oneOff.length
+      ? `<ul class="decision-list">${org.oneOff
+          .map(
+            (t) => `
+        <li class="decision ${t.priority === "MUST_DO" ? "is-must" : "is-rec"}">
+          <span class="it ${t.priority === "MUST_DO" ? "it-action" : "it-warn"}">${t.priority === "MUST_DO" ? "결정 · 필수" : "결정"}</span>
+          <div>
+            <p class="decision-title">${esc(cleanTitle(t.title))}</p>
+            <div class="decision-desc">${esc(t.desc)}</div>
+          </div>
+          <div class="decision-actions">
+            <button type="button" class="btn-xs primary" ${targetAttrs(t)}>직접 처리</button>
+            <button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(t.id)}" title="비서가 무난한 기본안으로 처리합니다">비서에게 맡기기</button>
+          </div>
+        </li>`
+          )
+          .join("")}</ul>`
+      : `<div class="empty-box">지금 처리할 일이 없습니다. 날짜를 진행해도 됩니다.</div>`;
+
+    // 2) 비서 추천 — 보류할 수 있고, 오래된 추천은 뒤로 밀린다
+    const adv = $("foAdvice");
+    if (adv) {
+      const an = $("foAdviceNote");
+      if (an) an.textContent = org.hiddenCount ? `다른 추천 ${org.hiddenCount}건 대기` : "";
+      adv.innerHTML = org.advice.length
+        ? org.advice
+            .map(
+              (r) => `
+          <li class="decision is-rec">
+            <span class="it it-opinion">${r.kind === "SEASONAL" ? "시기 조언" : "비서 추천"}</span>
+            <div>
+              <p class="decision-title">${esc(cleanTitle(r.title))}</p>
+              <div class="decision-desc">${esc(r.desc)}${r.ageDays >= 7 ? ` <span class="tiny muted">· ${r.ageDays}일째</span>` : ""}</div>
+            </div>
+            <div class="decision-actions">
+              <button type="button" class="btn-xs" ${targetAttrs(r)}>보기</button>
+              ${r.kind === "ASSISTANT" && r.quickActionLabel ? `<button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(r.id)}">맡기기</button>` : ""}
+              <button type="button" class="btn-xs ghost" data-fo-snooze="${esc(r.id)}" title="14일 동안 이 추천을 숨깁니다">2주 보류</button>
+            </div>
+          </li>`
+            )
+            .join("")
+        : `<li class="empty-box">지금은 추천할 일이 없습니다.</li>`;
+    }
+
+    // 3) 계속 지켜볼 지표
+    const watchEl = $("foWatch");
+    if (watchEl) {
+      const order = { bad: 0, warn: 1, ok: 2 };
+      watchEl.innerHTML = org.watch
+        .slice()
+        .sort((a, b) => order[a.status] - order[b.status])
+        .map(
+          (w) => `
+        <li class="watch-item is-${w.status}">
+          <span class="watch-dot" aria-hidden="true"></span>
+          <button type="button" class="w-link" data-goto-tab="${esc(w.target.tab)}" data-goto-sub="${esc(w.target.sub || "")}" data-goto-f5="${w.target.f5 ? w.target.f5.join(",") : ""}">
+            <span class="w-label">${esc(w.label)}</span>
+            <span class="sr-only">${w.status === "bad" ? "경고" : w.status === "warn" ? "주의" : "정상"}</span>
+            <div class="w-note">${esc(w.note)}</div>
+          </button>
+          <span class="w-val">${esc(w.value)}</span>
+        </li>`
+        )
+        .join("");
+    }
   }
 
   // 단장실: 앞으로 60일 일정·마감
@@ -25529,7 +25892,7 @@
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">2. KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
-              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 자동 보호(외국인 · FA 자격 · 입단 1~3년차 · 군보류 이력 4년차 · 상무 복무 중) 외 35인 보호. 비FA 다년계약 선수는 자동 보호가 아니므로 명단에 넣어야 합니다 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
+              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 자동 보호(외국인 · FA 자격 · 입단 1~3년차 · 군보류 이력 4년차) 외 35인 보호. 비FA 다년계약 선수와 상무 복무 중인 선수도 명단에 넣어야 보호됩니다 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
             </div>
             <button type="button" class="btn-sm primary" data-run-biennial-draft="1" ${bdGate.allowed && !thisYearBd ? "" : "disabled"}>
               ${
@@ -27654,6 +28017,196 @@
     });
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+   * 튜토리얼 — 새 단장 부임 직후 화면 각 부분을 차례로 짚어 주는 안내 (⚙ 메뉴에서 다시 보기)
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const TUTORIAL_STEPS = [
+    {
+      title: "단장님, 부임을 환영합니다",
+      body:
+        "이 게임에서 당신은 KBO 구단의 단장입니다. 경기는 감독이 하고, 단장은 <strong>돈·사람·계약</strong>을 결정합니다.<br>목표는 구단주가 정한 성적을 내면서 예산과 신임을 지키는 것입니다. 2분이면 화면 읽는 법을 익힐 수 있습니다.",
+      target: null
+    },
+    {
+      title: "상태 바 — 매일 확인하는 숫자",
+      body: "오늘 날짜, 순위, <strong>예산 · 연봉 · 여유 예산</strong>, 그리고 구단주·감독·팬의 신임이 있습니다. 신임이 40 아래로 떨어지면 빨갛게 바뀝니다. '재정'을 누르면 장부와 구단주 증액 요청이 열립니다.",
+      target: ".status-bar"
+    },
+    {
+      title: "다음 마감과 날짜 진행",
+      body: "가장 가까운 마감이 D-day로 보입니다. 누르면 그 업무 화면으로 갑니다.<br>오른쪽 <strong>+1일 · +1주 · +4주</strong>로 날짜를 넘깁니다. 마감을 놓치면 비서가 무난한 기본안으로 자동 처리합니다.",
+      target: "#hdrNextDeadline"
+    },
+    {
+      title: "6개 업무 영역",
+      body: "단장실(브리핑) · 선수단 · 스카우팅 · 계약·이적 · 구단 운영 · 기록실. 이름 옆 빨간 숫자는 그 영역에서 <strong>꼭 결정해야 할 일</strong>의 개수입니다.",
+      target: ".area-nav"
+    },
+    {
+      title: "결정 대기함 — 한 번 처리하면 끝나는 일",
+      body: "드래프트 지명, 스토브리그 계약처럼 <strong>마감이 있고 한 번 처리하면 사라지는 일</strong>만 모았습니다. '직접 처리'로 화면에 가거나, '비서에게 맡기기'로 기본안을 고를 수 있습니다.",
+      target: "#foDecisionTitle",
+      box: "section"
+    },
+    {
+      title: "비서 추천 — 의견입니다",
+      body: "비서의 제안과 시기별 조언입니다. <span class=\"it it-opinion\">의견</span> 표시가 붙은 정보는 <strong>따를지 말지 단장이 판단</strong>합니다. 지금 필요 없으면 '2주 보류'를 누르세요. 오래 떠 있던 추천은 저절로 쉬고 다른 추천이 올라옵니다.",
+      target: "#foAdviceTitle",
+      box: "section"
+    },
+    {
+      title: "계속 지켜볼 지표",
+      body: "엔트리·부상, 여유 예산, 구단주 신임, 경쟁균형세 상한, 2군 육성처럼 <strong>매일 바뀌는 상태</strong>입니다. 초록은 정상, 노랑은 주의, 빨강은 경고. 누르면 관련 화면으로 갑니다.",
+      target: "#foWatchTitle",
+      box: "section"
+    },
+    {
+      title: "받은 보고 — 누가, 얼마나 믿을 만한가",
+      body: "보고마다 출처와 정보 유형이 붙습니다.<br><span class=\"it it-fact\">확정</span> 기록·경기 결과 &nbsp; <span class=\"it it-est\">추정</span> 스카우트 평가(오차 있음) &nbsp; <span class=\"it it-opinion\">의견</span> 이해관계가 있는 주장<br>스카우팅 화면의 <span class=\"est-val\">60~66</span> 같은 범위 숫자도 추정치입니다. 스카우트 수준·조사도·단장 직관이 오르면 범위가 좁아집니다.",
+      target: "#foInboxTitle",
+      box: "section"
+    },
+    {
+      title: "마감 · 일정",
+      body: "앞으로 60일 안의 마감과 행사입니다. 1월이라면 <strong>연봉 재계약 · FA · 외국인 계약</strong>이 차례로 마감됩니다. 계약·이적 화면 위쪽의 '스토브리그 단계'에서도 진행 중/예정/완료를 볼 수 있습니다.",
+      target: "#foTimelineTitle",
+      box: "section"
+    },
+    {
+      title: "설정 메뉴",
+      body: "저장 · 불러오기, 어두운 화면, 게임 설명, <strong>이 튜토리얼 다시 보기</strong>가 여기 있습니다. 상단의 '저장' 버튼으로 언제든 빠르게 저장하세요.",
+      target: "#btnSystemMenu"
+    },
+    {
+      title: "첫 할 일",
+      body: "1) 계약·이적 → 연봉 재계약과 FA 시장을 살펴보세요.<br>2) 스카우팅 → 외국인 · 아시아쿼터 계약을 확인하세요.<br>3) 구단 운영 → 코치진과 스프링캠프를 정하세요.<br>준비가 끝나면 +1주로 날짜를 넘기며 3월 22일 개막을 맞이하세요. 행운을 빕니다, 단장님.",
+      target: null
+    }
+  ];
+  let tutorialIdx = -1;
+  let tutorialReturnFocus = null;
+
+  function tutorialEls() {
+    let root = $("gmTutorial");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "gmTutorial";
+      root.innerHTML = `
+        <div class="tut-spot" aria-hidden="true"></div>
+        <div class="tut-card" role="dialog" aria-modal="true" aria-labelledby="tutTitle">
+          <div class="tut-step tiny" id="tutStep"></div>
+          <h2 class="tut-title" id="tutTitle"></h2>
+          <div class="tut-body" id="tutBody"></div>
+          <div class="tut-actions">
+            <button type="button" class="btn-xs ghost" data-tut="skip">건너뛰기</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn-xs" data-tut="prev">이전</button>
+            <button type="button" class="btn-xs primary" data-tut="next">다음</button>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+      root.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-tut]");
+        if (!b) return;
+        const act = b.dataset.tut;
+        if (act === "next") showTutorialStep(tutorialIdx + 1);
+        else if (act === "prev") showTutorialStep(tutorialIdx - 1);
+        else endTutorial();
+      });
+      root.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          endTutorial();
+        } else if (e.key === "ArrowRight") showTutorialStep(tutorialIdx + 1);
+        else if (e.key === "ArrowLeft") showTutorialStep(tutorialIdx - 1);
+        else if (e.key === "Tab") {
+          const f = Array.from(root.querySelectorAll("button"));
+          const i = f.indexOf(document.activeElement);
+          e.preventDefault();
+          f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+        }
+      });
+    }
+    return root;
+  }
+
+  function showTutorialStep(i) {
+    if (i >= TUTORIAL_STEPS.length) return endTutorial(true);
+    if (i < 0) i = 0;
+    tutorialIdx = i;
+    const step = TUTORIAL_STEPS[i];
+    const root = tutorialEls();
+    root.hidden = false;
+    $("tutStep").textContent = `${i + 1} / ${TUTORIAL_STEPS.length}`;
+    $("tutTitle").textContent = step.title;
+    $("tutBody").innerHTML = step.body;
+    root.querySelector('[data-tut="prev"]').disabled = i === 0;
+    root.querySelector('[data-tut="next"]').textContent = i === TUTORIAL_STEPS.length - 1 ? "시작하기" : "다음";
+
+    // 단장실 화면에서 안내 (대상이 보이도록)
+    if (STATE.activeTab !== "pennant" && step.target && step.target.startsWith("#fo")) navigateTo({ tab: "pennant" }, { focus: false });
+    let el = step.target ? document.querySelector(step.target) : null;
+    if (el && step.box) el = el.closest(step.box) || el;
+    const spot = root.querySelector(".tut-spot");
+    const card = root.querySelector(".tut-card");
+    if (el && el.offsetParent !== null) {
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect();
+      const pad = 6;
+      Object.assign(spot.style, { display: "block", top: `${r.top - pad}px`, left: `${r.left - pad}px`, width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px` });
+      // 카드는 대상 아래(공간이 없으면 위)에 둔다
+      const cw = Math.min(420, window.innerWidth - 32);
+      const below = r.bottom + 16 + 260 < window.innerHeight;
+      const top = below ? r.bottom + 14 : Math.max(16, r.top - 14 - card.offsetHeight);
+      const left = Math.min(Math.max(16, r.left), window.innerWidth - cw - 16);
+      Object.assign(card.style, { top: `${top}px`, left: `${left}px`, width: `${cw}px`, transform: "none" });
+    } else {
+      Object.assign(spot.style, { display: "block", top: "50%", left: "50%", width: "0px", height: "0px" });
+      Object.assign(card.style, { top: "50%", left: "50%", width: `${Math.min(460, window.innerWidth - 32)}px`, transform: "translate(-50%, -50%)" });
+    }
+    root.querySelector('[data-tut="next"]').focus();
+  }
+
+  function startTutorial() {
+    tutorialReturnFocus = document.activeElement;
+    closeSystemMenu();
+    const bd = $("gmModalBackdrop");
+    if (bd) bd.hidden = true;
+    navigateTo({ tab: "pennant" }, { focus: false });
+    showTutorialStep(0);
+  }
+
+  function endTutorial(completed) {
+    const root = $("gmTutorial");
+    if (root) root.hidden = true;
+    tutorialIdx = -1;
+    if (STATE.ctx) STATE.ctx.tutorialDone = true;
+    try {
+      localStorage.setItem("kbo_gm_tutorial_done", "1");
+    } catch (e) {}
+    if (completed) showToast("튜토리얼을 마쳤습니다. ⚙ 메뉴에서 언제든 다시 볼 수 있습니다.", "good");
+    if (tutorialReturnFocus && typeof tutorialReturnFocus.focus === "function") tutorialReturnFocus.focus();
+  }
+
+  // 새 단장 부임 직후 한 번 자동으로 띄운다 (이미 본 저장 파일이면 생략)
+  function maybeStartTutorial() {
+    if (!STATE.ctx || STATE.ctx.tutorialDone) return;
+    let seen = false;
+    try {
+      seen = localStorage.getItem("kbo_gm_tutorial_done") === "1";
+    } catch (e) {}
+    // 이 브라우저에서 이미 끝까지 봤거나, 자동 점검(?notutorial)일 때는 생략 — ⚙ 메뉴에서 다시 볼 수 있다
+    if (seen || /[?&]notutorial\b/.test(String(location.search))) return;
+    setTimeout(startTutorial, 400);
+  }
+
+  // 화면 크기가 바뀌면 강조 위치를 다시 계산
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", () => {
+      if (tutorialIdx >= 0) showTutorialStep(tutorialIdx);
+    });
+  }
+
   function closeSystemMenu() {
     const menu = $("systemMenu");
     const btn = $("btnSystemMenu");
@@ -27698,6 +28251,9 @@
 
     const notifBtn = $("btnNotifInbox");
     if (notifBtn) notifBtn.addEventListener("click", openNotifInbox);
+
+    const tutBtn = $("btnReplayTutorial");
+    if (tutBtn) tutBtn.addEventListener("click", startTutorial);
 
     const guideBtn = $("btnOpenGuideInGame");
     if (guideBtn) guideBtn.addEventListener("click", () => {
@@ -27812,6 +28368,7 @@
           "good"
         );
         enterDashboardWithContext(newCtx);
+        maybeStartTutorial();
       });
     }
 
@@ -28384,6 +28941,14 @@
         const tg = resolveTaskTarget(null, gotoEl.dataset.gotoTab, gotoEl.dataset.gotoSub);
         if (f5) tg.f5 = f5;
         navigateTo(tg);
+        return;
+      }
+      // 비서 추천 2주 보류
+      const snoozeBtn = e.target.closest("[data-fo-snooze]");
+      if (snoozeBtn && GM.FrontOffice) {
+        const until = GM.FrontOffice.snooze(STATE.ctx, snoozeBtn.dataset.foSnooze);
+        showToast(`이 추천을 ${until}까지 숨깁니다. 그동안 다른 추천이 올라옵니다.`, "info");
+        renderTodaysTodoPanel();
         return;
       }
       // 받은 보고 출처 필터

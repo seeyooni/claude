@@ -2197,6 +2197,112 @@
       font-weight: 600;
       font-variant-numeric: tabular-nums;
     }
+
+    /* ── 계속 지켜볼 지표 ── */
+    .watch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .watch-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      border-top: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+    .watch-item:first-child {
+      border-top: none;
+    }
+    .watch-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--good);
+    }
+    .watch-item.is-warn .watch-dot {
+      background: var(--warn);
+    }
+    .watch-item.is-bad .watch-dot {
+      background: var(--bad);
+    }
+    .watch-item .w-label {
+      font-weight: 600;
+    }
+    .watch-item .w-note {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .watch-item .w-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .watch-item button.w-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .watch-item button.w-link:hover .w-label {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    /* ── 튜토리얼 ── */
+    #gmTutorial {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+    }
+    #gmTutorial[hidden] {
+      display: none;
+    }
+    .tut-spot {
+      position: fixed;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 0 0 9999px rgba(14, 17, 23, 0.62);
+      outline: 2px solid var(--accent);
+      transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+      pointer-events: none;
+    }
+    .tut-card {
+      position: fixed;
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--e3);
+      padding: var(--sp-4);
+    }
+    .tut-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      margin: 4px 0 8px;
+    }
+    .tut-body {
+      font-size: var(--fs-sm);
+      line-height: 1.65;
+      color: var(--text-main);
+    }
+    .tut-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: var(--sp-4);
+    }
+
+    /* 그리드 칸이 넓은 표 때문에 늘어나지 않도록 (표는 .table-wrap 안에서 가로 스크롤) */
+    .grid-2col > *,
+    .fo-grid > *,
+    .grid-3col > * {
+      min-width: 0;
+    }
   </style>
 </head>
 <body>
@@ -2434,6 +2540,7 @@
           <div class="menu-label">게임</div>
           <button type="button" role="menuitem" data-main-tab="storage">저장 · 불러오기</button>
           <button type="button" role="menuitem" id="btnThemeToggle">어두운 화면</button>
+          <button type="button" role="menuitem" id="btnReplayTutorial">튜토리얼 다시 보기</button>
           <button type="button" role="menuitem" id="btnOpenGuideInGame">게임 설명</button>
           <button type="button" role="menuitem" id="btnBackToLobby">슬롯 화면으로 나가기</button>
           <hr>
@@ -2496,10 +2603,17 @@
         <div>
           <section class="fo-card" aria-labelledby="foDecisionTitle">
             <div class="fo-card-head">
-              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함</h2>
+              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함 <span class="tiny muted">한 번 처리하면 끝나는 일</span></h2>
               <span class="fo-card-note" id="foDecisionNote"></span>
             </div>
             <div id="todaysTodoPanel"></div>
+          </section>
+          <section class="fo-card" aria-labelledby="foAdviceTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foAdviceTitle">비서 추천 <span class="it it-opinion">의견</span></h2>
+              <span class="fo-card-note" id="foAdviceNote"></span>
+            </div>
+            <ul id="foAdvice" class="decision-list"></ul>
           </section>
           <section class="fo-card" aria-labelledby="foInboxTitle">
             <div class="fo-card-head">
@@ -2521,6 +2635,13 @@
               <span class="fo-card-note">앞으로 60일</span>
             </div>
             <ol id="foTimeline" class="timeline"></ol>
+          </section>
+          <section class="fo-card" aria-labelledby="foWatchTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foWatchTitle">계속 지켜볼 지표</h2>
+              <span class="fo-card-note">매일 바뀌는 상태</span>
+            </div>
+            <ul id="foWatch" class="watch-list"></ul>
           </section>
           <section class="fo-card" aria-labelledby="foStatusTitle">
             <div class="fo-card-head">

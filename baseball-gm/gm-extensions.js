@@ -436,9 +436,10 @@
     }
 
     const curYear = (context && context.currentYear) || 2025;
-    const allPlayers = team.getAllPlayers();
+    // 상무 복무 중인 선수도 지명 대상 (실제 규정: 군보류 선수는 입단 1~3년차·4년차 군보류 이력일 때만 자동 보호)
+    const allPlayers = [...team.getAllPlayers(), ...(team.militaryList || [])];
 
-    // 자동 보호 대상: 외국인/아시아쿼터, 입단 1~3년차(+군보류 이력 4년차), FA 자격 선수, 상무 복무 중
+    // 자동 보호 대상: 외국인/아시아쿼터, 입단 1~3년차(+군보류 이력 4년차), FA 자격 선수 (상무 복무 중 선수도 지명 대상)
     const autoExemptIds = new Set();
     const autoProtectedPlayers = [];
     const candidatesFor35 = [];
@@ -450,8 +451,7 @@
       // 실제 KBO 규정(2025 개정): 입단 1~3년차 자동 보호 + 입단 4년차 중 군보류 이력 선수
       const isRecentRookie = entryYears <= 3 || (entryYears === 4 && Boolean(p.enlistedDate));
       const isFaEligible = (p.faYears || 0) >= 8 || p.status === "FA_POOL";
-      // 게임 단순화: 상무 복무 중인 선수는 소속 이동 처리를 피하려고 자동 보호 (실제 규정은 4년차 이상 군보류 선수도 지명 대상)
-      const isMilitary = p.status === "MILITARY";
+      const isMilitary = false; // 상무 복무 중이어도 자동 보호하지 않는다 (지명되면 새 구단 소속으로 복무를 이어감)
       // 비FA 다년계약 선수는 자동 보호가 아니다 → 35인 명단 한 자리를 차지한다 (실제 규정)
 
       if (isForeign || isRecentRookie || isFaEligible || isMilitary) {
@@ -618,9 +618,11 @@
         }
 
         if (!chosenEntry) {
+          // 상무 복무 중인 선수는 남은 복무 기간만큼 당장 못 쓰므로 가치를 깎는다
+          const serviceDiscount = (pl) => (pl.status === "MILITARY" ? ((pl.militaryDaysLeft || 0) / 365) * 6 : 0);
           availableTargets.sort((a, b) => {
-            const scoreA = a.player.getTrueOvr() * 0.65 + (a.player.potential || 70) * 0.35 - Math.max(0, a.player.age - 28) * 1.2;
-            const scoreB = b.player.getTrueOvr() * 0.65 + (b.player.potential || 70) * 0.35 - Math.max(0, b.player.age - 28) * 1.2;
+            const scoreA = a.player.getTrueOvr() * 0.65 + (a.player.potential || 70) * 0.35 - Math.max(0, a.player.age - 28) * 1.2 - serviceDiscount(a.player);
+            const scoreB = b.player.getTrueOvr() * 0.65 + (b.player.potential || 70) * 0.35 - Math.max(0, b.player.age - 28) * 1.2 - serviceDiscount(b.player);
             return scoreB - scoreA;
           });
           chosenEntry = availableTargets[0];
@@ -634,8 +636,8 @@
         protectionMap[formerTeam.id].exposedPool = protectionMap[formerTeam.id].exposedPool.filter(
           (p) => p.id !== player.id
         );
-        ["roster1G", "roster2G", "rosterDev"].forEach((rk) => {
-          formerTeam[rk] = formerTeam[rk].filter((p) => p.id !== player.id);
+        ["roster1G", "roster2G", "rosterDev", "militaryList"].forEach((rk) => {
+          if (Array.isArray(formerTeam[rk])) formerTeam[rk] = formerTeam[rk].filter((p) => p.id !== player.id);
         });
 
         // 양도금 이체 (100억~250억 예산 밸런스 유지)
@@ -647,7 +649,11 @@
         player.teamId = pickingTeam.id;
         player.acquiredVia = { type: "SECONDARY_DRAFT", date: context.currentDate || null, fromTeamId: player.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
         player.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
-        if (pickingTeam.roster1G.length < 28 && round === 1) {
+        if (player.status === "MILITARY") {
+          // 상무 복무 중인 선수: 남은 복무를 마치고 새 구단으로 복귀
+          if (!Array.isArray(pickingTeam.militaryList)) pickingTeam.militaryList = [];
+          pickingTeam.militaryList.push(player);
+        } else if (pickingTeam.roster1G.length < 28 && round === 1) {
           player.status = "1GUN";
           pickingTeam.roster1G.push(player);
         } else if (pickingTeam.roster2G.length < 30) {
@@ -4333,10 +4339,13 @@
 
     // (M-4) FA 영입 시 20인/25인 보호명단 제출 및 격년 2차 드래프트 35인 보호명단 작성
     const store = ensureCustomProtectionStore(userTeam);
+    // 보호명단은 실제로 쓰이는 시기에만 '필수': 2차 드래프트(격년 11월 1~14일) 직전, FA 시장(12/1~1/15)에서 20인 명단이 비었을 때
+    // (예전에는 20인 명단이 덜 찼다는 이유만으로 1년 내내 필수로 떠 있었다)
+    const inFAMarket = mm === 12 || (mm === 1 && dd <= 15);
     const needProtectionCheck =
-      store.FA_20.length < 20 ||
-      (isBiennialDraftYear(context.currentYear) && (mm === 11 || curWeek === 28) && store.DRAFT_35.length < 35);
-    if (needProtectionCheck || (isStoveSeason && store.FA_20.length === 0)) {
+      (isBiennialDraftYear(context.currentYear) && mm === 11 && dd <= 14 && store.DRAFT_35.length < 35) ||
+      (inFAMarket && store.FA_20.length < 20);
+    if (needProtectionCheck) {
       mustDo.push({
         id: "PROTECTION_LIST_SUBMIT",
         priority: "MUST_DO",
