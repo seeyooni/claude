@@ -25,10 +25,11 @@ python3 -m http.server 8000   # http://localhost:8000
 | `gm-extensions.js` | `KBO_GM.Extensions` | 포스트시즌 등 프런트 확장 시스템 |
 | `gm-setup.js` | `KBO_GM.Setup` / `KBO_GM.Rules` | 단장 프로필·계약, 일간 진행 엔진(스토브리그 마감일 자동 처리 포함), 통합 세팅 규칙 |
 | `gm-economy.js` | `KBO_GM.Economy` | 구단 재정(모기업 지원금·이월금·주간 정산) & 난이도 |
-| `gm-retro.js` | `KBO_GM.Retro` | 시즌 회고 리포트 (결정 순효과·운·성장) |
+| `gm-retro.js` | `KBO_GM.Retro` | 시즌 회고 리포트 (결정 순효과·운·성장·트레이드 장부·드래프트 성과·구단주 증액 효과) |
+| `gm-balance.js` | `KBO_GM.Balance` | 8시즌 밸런스 진단 (게임 내 버튼과 `tools/balance-check.js` 공용) |
 | `gm-ui.js` | `KBO_GM.UI` | 대시보드 UI 컨트롤러 |
 
-원본은 `gm-economy.js`·`gm-retro.js`를 뺀 10개 모듈을 하나로 합친 단일 `index.html`이었으며, 협업·수정이 쉽도록 원래의 모듈 단위로 다시 분리했다.
+원본은 `gm-economy.js`·`gm-retro.js`·`gm-balance.js`를 뺀 10개 모듈을 하나로 합친 단일 `index.html`이었으며, 협업·수정이 쉽도록 원래의 모듈 단위로 다시 분리했다.
 
 ## 재정 모델 (`gm-economy.js`)
 
@@ -61,15 +62,21 @@ python3 -m http.server 8000   # http://localhost:8000
 - 상무: 게임 시작 시 국내 선수 병역 배정 — 만 25세 이상 군필, 21~24세는 나이에 비례한 무작위(21세 20% ~ 24세 80% 군필), 20세 이하 미필. 구단당 동시 복무 4명. 12월 10일 정기 자동 입대는 AI 구단만 (유저 구단은 직접 결정).
 - MLB 포스팅: 11월 1일~12월 15일에만, KBO 7시즌 이상 · 만 31세 이하 · 종합 OVR 90+ 또는 단일 능력치 95+ 국내 선수 중 구단당 1명에게 제안. 불허하면 그해에는 재제안 없음.
 
-## 선수 성장 (`Player.applyYearlyDevelopment`, 튜닝 값은 `gm-schema.js`의 `GROWTH`)
+## 선수 성장 (`Player.applyYearlyDevelopment`, 튜닝 값은 `gm-schema.js`의 `GROWTH_BY_DIFFICULTY`)
 
-매 시즌 종료 후(노쇠화 전) 성장: `(잠재력 − OVR) × 나이별 성장률 × 출전 보정 × 무작위`. 나이별 성장률 21세 이하 0.15 · 24세 이하 0.12 · 27세 이하 0.07 · 30세 이하 0.03. 1군 주전 ×1.25. 각성(6~9%) ×2, 정체(7%) 0. OVR 88 이상은 성장 ×0.4.
+매 시즌 종료 후(노쇠화 전) 성장: `(잠재력 − OVR) × 나이별 성장률 × 출전 보정 × 무작위`. 나이별 성장률 21세 이하 0.15 · 24세 이하 0.12 · 27세 이하 0.07 · 30세 이하 0.03. 1군 주전 ×1.25. 각성(6~9%) ×2, 정체(7%) 0. OVR 88 이상은 성장 ×0.4. 단, 잠재력 97 이상 '슈퍼스타 재목'은 둔화가 없고 성장 가속(쉬움 ×1.5 · 보통 ×1.28 · 어려움 ×1.15).
+
+난이도는 리그 전체의 성장 환경을 바꾼다. 7년차 리그 OVR 95+ 목표: 쉬움 4명 · 보통 2명 · 어려움 1명 (측정: 쉬움 4.0 · 보통 2.2 · 어려움 0.9, 각 8~12회 평균).
 
 ## 시즌 회고 리포트 (`gm-retro.js`)
 
 매년 11월 4일 자동 작성 (데이터 기록실 › 시즌 회고 리포트). 직전 시즌 종료 시점 로스터와 비교해 영입 선수 WAR − 이탈 선수 WAR = 결정 순효과(1 WAR ≈ 1승), 득실점 기대 승수 대비 실제 승수(운), 잔류 선수 OVR 변화, 재정을 보여준다. 영입 경로는 선수가 이동할 때 `acquiredVia`로 기록한다.
 
-## 밸런스 진단 (`tools/balance-check.js`)
+누적 장부: 트레이드별 손익(`context.tradeLedger` — 받은 선수가 우리 팀에서 낸 WAR vs 보낸 선수가 새 팀에서 낸 WAR, 트레이드 연도부터), 드래프트 지명 연도별 누적 WAR(`player.draftInfo`), 구단주 증액 승인(`context.ownerSupportLog`) 이후 영입 선수의 WAR.
+
+## 밸런스 진단 (`gm-balance.js` — 헤더의 "8시즌 밸런스 진단" 버튼 / `tools/balance-check.js`)
+
+게임 안에서는 헤더 버튼으로 실행한다 (새 리그로 진행, 진행 중인 게임·세이브에 영향 없음, 진행률 표시, 8시즌 1회 약 3초). Node로는:
 
 ```bash
 node tools/balance-check.js --seasons 8 --runs 3 --team KIA --difficulty NORMAL

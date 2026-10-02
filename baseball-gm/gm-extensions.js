@@ -2795,6 +2795,12 @@
     }
 
     fulfillTradeDirective(context, team.id, [targetPlayer]);
+    if (team.id === context.userTeamId) {
+      const retroMod = getGM() && getGM().Retro;
+      if (retroMod && typeof retroMod.recordTrade === "function") {
+        retroMod.recordTrade(context, { partnerTeamId: partnerTeam.id, sentIds: [tradeChip.id], receivedIds: [targetPlayer.id], cashManwon: 0 });
+      }
+    }
 
     return {
       ok: true,
@@ -3891,6 +3897,12 @@
     acqPlayer.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (acqPlayer.status === "1GUN") userTeam.roster1G.push(acqPlayer);
     else userTeam.roster2G.push(acqPlayer);
+    {
+      const retroMod = getGM() && getGM().Retro;
+      if (retroMod && typeof retroMod.recordTrade === "function") {
+        retroMod.recordTrade(context, { partnerTeamId: partnerTeam.id, sentIds: [sendPlayer.id], receivedIds: [acqPlayer.id], cashManwon: 0 });
+      }
+    }
 
     // SELLER 딜로 상위 지명권까지 확보한 경우 context.tradedPicks에 반영
     if (deal.bonusPickRound) {

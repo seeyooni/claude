@@ -1339,6 +1339,10 @@
     };
     if (!Array.isArray(context.tradeHistory)) context.tradeHistory = [];
     context.tradeHistory.unshift(tradeRecord);
+    {
+      const retroMod = typeof globalThis !== "undefined" && globalThis.KBO_GM && globalThis.KBO_GM.Retro;
+      if (retroMod && typeof retroMod.recordTrade === "function") retroMod.recordTrade(context, { partnerTeamId: targetTeam.id, sentIds: [myPlayer.id], receivedIds: [targetPlayer.id], cashManwon: cash });
+    }
 
     return {
       ok: true,
@@ -1440,6 +1444,8 @@
 
     if (approved) {
       userTeam.budget = clamp((userTeam.budget || 1200000) + spec.amount, -3000000, 4000000);
+      if (!Array.isArray(context.ownerSupportLog)) context.ownerSupportLog = [];
+      context.ownerSupportLog.push({ year: context.currentYear, date: context.currentDate, amountManwon: spec.amount, tier: spec.id });
       userTeam.ownerTrust = clamp((userTeam.ownerTrust ?? 60) - spec.succTrustCost, 0, 100);
       return {
         ok: true,
@@ -2131,6 +2137,10 @@
 
     if (!Array.isArray(context.tradeHistory)) context.tradeHistory = [];
     context.tradeHistory.unshift(tradeRecord);
+    {
+      const retroMod = typeof globalThis !== "undefined" && globalThis.KBO_GM && globalThis.KBO_GM.Retro;
+      if (retroMod && typeof retroMod.recordTrade === "function") retroMod.recordTrade(context, { partnerTeamId: targetTeam.id, sentIds: ev.myPlayers.map((p) => p.id), receivedIds: ev.targetPlayers.map((p) => p.id), cashManwon: cash });
+    }
 
     // [감독 핀포인트 트레이드 요청 달성 판정]
     let directiveFulfilled = null;

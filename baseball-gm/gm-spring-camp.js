@@ -647,7 +647,9 @@
 
       // 연간 성장 (시즌 기록 리셋 전: 출전 시간 반영) 및 KBO 등록 시즌 +1
       if (typeof player.applyYearlyDevelopment === "function") {
-        const dev = player.applyYearlyDevelopment(rng);
+        const growthPreset =
+          KBO_GM && typeof KBO_GM.getGrowthPreset === "function" ? KBO_GM.getGrowthPreset(context.difficulty) : undefined;
+        const dev = player.applyYearlyDevelopment(rng, { growth: growthPreset });
         if (dev && dev.gain > 0) totalDevelopedPlayers += 1;
         if (dev && dev.breakout) totalBreakouts += 1;
       }

@@ -3337,6 +3337,50 @@
             <div class="tiny">${(r.topDecline || []).map((x) => `${esc(x.name)} ${x.ovrBefore}→<strong class="text-bad">${x.ovrNow}</strong>`).join(" · ") || ""}</div>
           </div>
         </div>
+        <div class="grid-3col" style="margin-top:10px">
+          <div>
+            <strong class="tiny">🔁 트레이드 장부 (트레이드 연도부터 누적 WAR)</strong>
+            <table class="gm-table compact"><tbody>
+              ${(r.tradeLedger || [])
+                .slice()
+                .reverse()
+                .slice(0, 6)
+                .map(
+                  (t) => `<tr title="받음: ${esc(t.receivedNames.join(", "))} / 보냄: ${esc(t.sentNames.join(", "))}">
+                    <td class="tnum">${esc(t.date || String(t.year))}</td>
+                    <td>${esc(t.partnerTeamName)}<div class="tiny muted">받음 ${esc(t.receivedNames.join(", "))}</div></td>
+                    <td class="tnum ${t.netWar >= 0 ? "text-good" : "text-bad"}">${sign(t.netWar)}<div class="tiny muted">+${t.gainedWar} / -${t.lostWar}</div></td>
+                  </tr>`
+                )
+                .join("") || `<tr><td class="muted">아직 트레이드가 없습니다.</td></tr>`}
+            </tbody></table>
+          </div>
+          <div>
+            <strong class="tiny">🎓 드래프트 성과 (지명 연도별 누적 WAR)</strong>
+            <table class="gm-table compact"><tbody>
+              ${(r.draftClasses || [])
+                .slice(0, 6)
+                .map(
+                  (c) => `<tr>
+                    <td class="tnum">${c.year}</td>
+                    <td class="tnum">${c.picks}명 (잔류 ${c.withUs})</td>
+                    <td class="tnum">${sign(c.war)}</td>
+                    <td class="tiny">${c.best ? `${esc(c.best.name)} ${c.best.round}R · OVR ${c.best.ovr}` : "-"}</td>
+                  </tr>`
+                )
+                .join("") || `<tr><td class="muted">아직 지명한 신인이 없습니다.</td></tr>`}
+            </tbody></table>
+          </div>
+          <div>
+            <strong class="tiny">💰 구단주 증액 효과 (올해)</strong>
+            ${
+              r.ownerSupport && r.ownerSupport.grantsThisYear
+                ? `<div class="tiny" style="margin-top:4px">승인 ${r.ownerSupport.grantsThisYear}회 · ${fmtMoney(r.ownerSupport.amountManwon)} → 이후 영입 선수 WAR <strong class="${r.ownerSupport.acquiredWar >= 0 ? "text-good" : "text-bad"}">${sign(r.ownerSupport.acquiredWar)}</strong>${r.ownerSupport.warPerEok != null ? ` (1억당 ${r.ownerSupport.warPerEok}승)` : ""}</div>
+                   <div class="tiny muted">${r.ownerSupport.acquiredAfter.map((a) => `${esc(a.name)} ${sign(a.war)}`).join(" · ") || "증액 이후 영입 없음"}</div>`
+                : `<div class="tiny muted" style="margin-top:4px">올해 승인된 증액 없음${r.ownerSupport && r.ownerSupport.allTimeManwon ? ` (누적 ${fmtMoney(r.ownerSupport.allTimeManwon)})` : ""}</div>`
+            }
+          </div>
+        </div>
         ${
           r.finance
             ? `<div class="tiny muted" style="margin-top:8px">재정: 모기업 지원금 ${fmtMoney(r.finance.subsidy)} · 이월금 ${fmtMoney(r.finance.carryover)} · 시즌 수입 ${fmtMoney(r.finance.revenue)} · 연봉총액 ${fmtMoney(r.finance.payroll)} · 시즌 종료 여유 예산 ${fmtMoney(r.finance.available)}${r.finance.deficitWeeks ? ` · 적자 정산 ${r.finance.deficitWeeks}주` : ""}</div>`
@@ -4147,6 +4191,105 @@
     `;
   }
 
+  /**
+   * 8시즌 밸런스 진단 (KBO_GM.Balance): 새 리그를 만들어 실제 엔진으로 진행 — 진행 중인 게임에는 영향 없음
+   */
+  let balanceRunToken = 0;
+
+  function openBalanceCheckModal() {
+    const ctx = STATE.ctx;
+    if (!GM.Balance) return;
+    const diff = (ctx && ctx.difficulty) || "NORMAL";
+    const team = (ctx && ctx.userTeamId) || "KIA";
+    $("gmModalTitle").textContent = "📊 8시즌 밸런스 진단 (실제 엔진)";
+    $("gmModalBody").innerHTML = `
+      <div class="weekly-summary-banner" style="margin-bottom:12px">
+        새 리그를 만들어 실제 경기 엔진으로 8시즌을 진행하고 전력 평준화·재정·선수 성장을 측정합니다.
+        <strong>진행 중인 게임과 세이브에는 영향이 없습니다.</strong> 진단용 리그의 내 구단(${esc(team)})은 아무 조작도 하지 않습니다.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <label class="tiny">반복 횟수
+          <select id="balanceRuns" class="gm-select"><option value="1">1회 (빠름)</option><option value="3" selected>3회 (권장)</option><option value="5">5회 (정밀)</option></select>
+        </label>
+        <label class="tiny">난이도
+          <select id="balanceDifficulty" class="gm-select">
+            ${["EASY", "NORMAL", "HARD"].map((k) => `<option value="${k}" ${k === diff ? "selected" : ""}>${({ EASY: "쉬움", NORMAL: "보통", HARD: "어려움" })[k]}</option>`).join("")}
+          </select>
+        </label>
+        <button type="button" class="btn-primary" id="btnStartBalanceCheck">진단 시작</button>
+      </div>
+      <div class="gauge-track" style="height:10px"><div id="balanceProgressBar" class="gauge-fill" style="width:0%"></div></div>
+      <div id="balanceProgressLabel" class="tiny muted" style="margin:4px 0 12px">대기 중</div>
+      <div id="balanceResultBox"></div>
+    `;
+    $("gmModalBackdrop").hidden = false;
+    $("btnStartBalanceCheck").addEventListener("click", () => startBalanceCheck(team));
+  }
+
+  async function startBalanceCheck(team) {
+    const token = ++balanceRunToken;
+    const btn = $("btnStartBalanceCheck");
+    if (btn) btn.disabled = true;
+    const runs = Number(($("balanceRuns") || {}).value) || 3;
+    const difficulty = ($("balanceDifficulty") || {}).value || "NORMAL";
+    const setProgress = (fraction, label) => {
+      // 모달을 닫거나 새 진단을 시작하면 진행 중인 진단을 중단
+      if (token !== balanceRunToken || $("gmModalBackdrop").hidden || !$("balanceProgressBar")) {
+        throw new Error("BALANCE_CHECK_CANCELLED");
+      }
+      $("balanceProgressBar").style.width = `${Math.round(fraction * 100)}%`;
+      $("balanceProgressLabel").textContent = `${Math.round(fraction * 100)}% · ${label}`;
+    };
+    try {
+      const result = await GM.Balance.runBalanceCheck({ seasons: 8, runs, team, difficulty, onProgress: setProgress });
+      $("balanceResultBox").innerHTML = renderBalanceResultHtml(result);
+      $("balanceProgressLabel").textContent = `완료 · ${(result.elapsedMs / 1000).toFixed(0)}초`;
+    } catch (err) {
+      if (String(err && err.message) !== "BALANCE_CHECK_CANCELLED") {
+        showToast("밸런스 진단 중 오류가 발생했습니다.", "bad");
+        throw err;
+      }
+    } finally {
+      const b = $("btnStartBalanceCheck");
+      if (b) b.disabled = false;
+    }
+  }
+
+  function renderBalanceResultHtml(result) {
+    const { summary, options } = result;
+    const f = (v, d = 3) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixed(d));
+    const ref = summary.reference;
+    const inRange = (v, [lo, hi]) => v >= lo - 0.005 && v <= hi + 0.005;
+    const last = summary.rows[summary.rows.length - 1] || {};
+    return `
+      <div class="report-box" style="margin-bottom:10px">
+        <strong>${options.seasons}시즌 × ${options.runs}회 평균 (${({ EASY: "쉬움", NORMAL: "보통", HARD: "어려움" })[options.difficulty]})</strong>
+        <div class="tiny" style="margin-top:4px">
+          마지막 시즌 승률 표준편차 <strong class="${inRange(last.sd, ref.sd) ? "text-good" : "text-bad"}">${f(last.sd)}</strong> (실제 KBO ${ref.sd.join("~")}) ·
+          1위 <strong>${f(last.topPct)}</strong> · 10위 <strong>${f(last.bottomPct)}</strong> ·
+          회당 외부 FA 이적 ${f(summary.totals.faExternalMoves, 1)}건 · 포스팅 제안 ${f(summary.totals.postingOffers, 1)}건 · 경쟁균형세 제재 ${f(summary.totals.luxuryTaxPenalties, 1)}건
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:360px;overflow:auto">
+        <table class="gm-table compact">
+          <thead><tr><th>시즌</th><th>승률 SD</th><th>1위</th><th>10위</th><th>순위상관</th><th>내 구단 순위</th><th>최고 OVR</th><th>90+</th><th>95+</th><th>적자 구단</th><th>내 여유(억)</th></tr></thead>
+          <tbody>
+            ${summary.rows
+              .map(
+                (r) => `<tr>
+                  <td class="tnum">${r.year}</td><td class="tnum">${f(r.sd)}</td><td class="tnum">${f(r.topPct)}</td><td class="tnum">${f(r.bottomPct)}</td>
+                  <td class="tnum">${f(r.rankCorr, 2)}</td><td class="tnum">${r.userRanks.join("/")}</td><td class="tnum">${f(r.maxOvr, 1)}</td>
+                  <td class="tnum">${f(r.ovr90, 1)}</td><td class="tnum">${f(r.ovr95, 1)}</td><td class="tnum">${f(r.deficitTeams, 1)}</td><td class="tnum">${f(r.userRoom, 1)}</td>
+                </tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="tiny muted" style="margin-top:6px">순위상관: 전년 순위와의 상관(1 = 순위 고착, 0 = 무작위). 진단용 리그의 내 구단은 아무 조작도 하지 않으므로 적자·순위는 '방치했을 때'의 결과입니다.</div>
+    `;
+  }
+
   function runWiringAuditModal() {
     try {
       const rep =
@@ -4360,6 +4503,9 @@
     const btnHeaderAudit = $("btnHeaderWiringAudit");
     if (btnHeaderAudit) btnHeaderAudit.addEventListener("click", () => runWiringAuditModal());
 
+    const btnHeaderBalance = $("btnHeaderBalanceCheck");
+    if (btnHeaderBalance) btnHeaderBalance.addEventListener("click", () => openBalanceCheckModal());
+
     // 상단 자동 저장 버튼
     const btnAutoSave = $("btnQuickAutoSave");
     if (btnAutoSave) {
@@ -4395,6 +4541,7 @@
             "gm-setup.js",
             "gm-economy.js",
             "gm-retro.js",
+            "gm-balance.js",
             "gm-ui.js"
           ];
           const codes = await Promise.all(

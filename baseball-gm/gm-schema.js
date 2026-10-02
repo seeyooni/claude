@@ -21,18 +21,39 @@
   /* ═══════════════════════════════════════════════════════════════════════
    * 1. v16.8 코어 상수 및 연산 테이블 (계승)
    * ═══════════════════════════════════════════════════════════════════════ */
-  // 연간 성장 튜닝 값 (tools/balance-check.js 로 OVR 분포를 확인하며 조정)
-  const GROWTH = {
-    rateByAge: [
-      [21, 0.15],
-      [24, 0.12],
-      [27, 0.07],
-      [30, 0.03]
-    ],
-    breakoutMul: 2.0,
-    eliteSlowdownAt: 88, // 이 OVR 이상은 성장 둔화
-    eliteSlowdownMul: 0.4
+  // 연간 성장 튜닝 값 — 난이도별로 리그 전체의 성장 환경이 달라진다 (tools/balance-check.js 로 OVR 분포를 확인하며 조정)
+  //   목표: 7년차 리그 OVR 95+ 인원 쉬움 4명 · 보통 2명 · 어려움 1명
+  const GROWTH_BY_DIFFICULTY = {
+    EASY: {
+      rateByAge: [[21, 0.15], [24, 0.12], [27, 0.07], [30, 0.03]],
+      breakoutMul: 2.0,
+      eliteSlowdownAt: 88, // 이 OVR 이상은 성장 둔화
+      eliteSlowdownMul: 0.4,
+      primePotential: 97, // 이 잠재력 이상은 슈퍼스타 재목 (둔화 면제 + 성장 가속)
+      primeRateMul: 1.5
+    },
+    NORMAL: {
+      rateByAge: [[21, 0.15], [24, 0.12], [27, 0.07], [30, 0.03]],
+      breakoutMul: 2.0,
+      eliteSlowdownAt: 88,
+      eliteSlowdownMul: 0.4,
+      primePotential: 97, // 이 잠재력 이상은 슈퍼스타 재목 (둔화 면제 + 성장 가속)
+      primeRateMul: 1.28
+    },
+    HARD: {
+      rateByAge: [[21, 0.15], [24, 0.12], [27, 0.07], [30, 0.03]],
+      breakoutMul: 2.0,
+      eliteSlowdownAt: 88,
+      eliteSlowdownMul: 0.4,
+      primePotential: 97, // 이 잠재력 이상은 슈퍼스타 재목 (둔화 면제 + 성장 가속)
+      primeRateMul: 1.15
+    }
   };
+  const GROWTH = GROWTH_BY_DIFFICULTY.NORMAL;
+
+  function getGrowthPreset(difficulty) {
+    return GROWTH_BY_DIFFICULTY[difficulty] || GROWTH_BY_DIFFICULTY.NORMAL;
+  }
 
   const P_KEYS = ["control", "stuff", "velo", "stamina", "movement"];
   const B_KEYS = ["contact", "power", "speed", "defense", "eye"];
@@ -452,7 +473,8 @@
      */
     applyYearlyDevelopment(rng = Math.random, options = {}) {
       const age = this.age || 20;
-      const rateRow = GROWTH.rateByAge.find(([maxAge]) => age <= maxAge);
+      const G = options.growth || GROWTH;
+      const rateRow = G.rateByAge.find(([maxAge]) => age <= maxAge);
       const rate = rateRow ? rateRow[1] : 0;
       const startOvr = this.getTrueOvr();
       const headroom = (this.potential || 75) - startOvr;
@@ -469,8 +491,10 @@
       const breakout = !bust && roll < 0.07 + breakoutP;
       if (bust) return { gain: 0, breakout: false, bust: true };
 
-      let gainTarget = headroom * rate * playMul * (0.5 + rng()) * (breakout ? GROWTH.breakoutMul : 1);
-      if (startOvr >= GROWTH.eliteSlowdownAt) gainTarget *= GROWTH.eliteSlowdownMul;
+      // 잠재력 최상위(슈퍼스타 재목)는 둔화 없이 더 빠르게 성장
+      const isPrime = (this.potential || 0) >= (G.primePotential || 999);
+      let gainTarget = headroom * rate * playMul * (0.5 + rng()) * (breakout ? G.breakoutMul : 1) * (isPrime ? G.primeRateMul || 1 : 1);
+      if (startOvr >= G.eliteSlowdownAt && !isPrime) gainTarget *= G.eliteSlowdownMul;
       const targetOvr = Math.min(this.potential, startOvr + Math.max(0, Math.round(gainTarget)));
       if (targetOvr <= startOvr) return { gain: 0, breakout, bust: false };
 
@@ -1103,6 +1127,8 @@
 
   return {
     GROWTH,
+    GROWTH_BY_DIFFICULTY,
+    getGrowthPreset,
     P_KEYS,
     B_KEYS,
     LABEL,

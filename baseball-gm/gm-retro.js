@@ -8,6 +8,9 @@
  *   - 결정 순효과 = 영입 WAR - 이탈 WAR
  *   - 성장: 잔류 선수의 OVR 변화 (육성·노쇠화)
  *   - 운: 득실점 기반 기대 승수(피타고리안) 대비 실제 승수 차이
+ *   - 트레이드 장부(누적): 트레이드마다 받은 선수가 우리 팀에서 낸 WAR vs 보낸 선수가 새 팀에서 낸 WAR (트레이드 연도부터 누적)
+ *   - 드래프트 성과(누적): 우리 구단이 지명한 연도별 신인들이 지금까지 KBO에서 쌓은 WAR
+ *   - 구단주 증액 효과: 올해 승인된 증액 이후 영입한 선수들의 WAR
  *
  * 의존: gm-schema.js (Player.getWar / getTrueOvr), gm-economy.js (재정 요약, 선택)
  */
@@ -67,6 +70,103 @@
       players
     };
     return context.retroSnapshot;
+  }
+
+  /** 유저 구단 트레이드 기록 (트레이드 실행 함수에서 호출) */
+  function recordTrade(context, deal) {
+    if (!context || !deal) return null;
+    if (!Array.isArray(context.tradeLedger)) context.tradeLedger = [];
+    const nameOf = (id) => {
+      const found = findPlayerAnywhere(context, id);
+      return found ? `${found.player.name}(${found.player.pos})` : id;
+    };
+    const partner = typeof context.getTeam === "function" ? context.getTeam(deal.partnerTeamId) : null;
+    const entry = {
+      id: `TRD_${context.currentYear}_${context.tradeLedger.length + 1}`,
+      year: context.currentYear,
+      date: context.currentDate,
+      partnerTeamId: deal.partnerTeamId,
+      partnerTeamName: partner ? partner.name : deal.partnerTeamId,
+      sentIds: deal.sentIds || [],
+      receivedIds: deal.receivedIds || [],
+      sentNames: (deal.sentIds || []).map(nameOf),
+      receivedNames: (deal.receivedIds || []).map(nameOf),
+      cashManwon: deal.cashManwon || 0
+    };
+    context.tradeLedger.push(entry);
+    return entry;
+  }
+
+  /**
+   * fromYear 시즌부터 지금까지 선수가 쌓은 WAR (teamFilter(teamId)가 true인 시즌만)
+   * - 지난 시즌은 career 기록(시즌 종료 시 소속 구단 기준), 이번 시즌은 현재 기록(rec) + 현재 소속 기준
+   */
+  function warSince(player, fromYear, currentYear, teamFilter) {
+    let total = 0;
+    (player.career || []).forEach((c) => {
+      if (c.year >= fromYear && c.year < currentYear && teamFilter(c.teamId)) total += Number(c.war) || 0;
+    });
+    if (currentYear >= fromYear && teamFilter(player.teamId)) total += warOf(player);
+    return total;
+  }
+
+  function buildTradeLedgerSummary(context, userTeamId) {
+    const year = context.currentYear;
+    return (context.tradeLedger || []).map((t) => {
+      const side = (ids, filter) =>
+        ids.reduce((s, id) => {
+          const found = findPlayerAnywhere(context, id);
+          return s + (found ? warSince(found.player, t.year, year, filter) : 0);
+        }, 0);
+      const gained = r1(side(t.receivedIds, (tid) => tid === userTeamId));
+      const lost = r1(side(t.sentIds, (tid) => tid && tid !== userTeamId));
+      return { ...t, gainedWar: gained, lostWar: lost, netWar: r1(gained - lost) };
+    });
+  }
+
+  function buildDraftClassSummary(context, userTeamId) {
+    const year = context.currentYear;
+    const classes = {};
+    (context.kboTeams || []).forEach((t) => {
+      teamPlayers(t).forEach((p) => {
+        const d = p.draftInfo;
+        if (!d || d.teamId !== userTeamId || typeof d.round !== "number") return;
+        if (!classes[d.year]) classes[d.year] = { year: d.year, picks: 0, withUs: 0, war: 0, best: null };
+        const c = classes[d.year];
+        const war = warSince(p, d.year, year, () => true);
+        c.picks += 1;
+        if (t.id === userTeamId) c.withUs += 1;
+        c.war = r1(c.war + war);
+        if (!c.best || war > c.best.war) {
+          c.best = { name: p.name, pos: p.pos, round: d.round, overallPick: d.overallPick, ovr: p.getTrueOvr(), war: r1(war), teamName: t.name };
+        }
+      });
+    });
+    return Object.values(classes).sort((a, b) => b.year - a.year);
+  }
+
+  function buildOwnerSupportSummary(context, team) {
+    const year = context.currentYear;
+    const grants = (context.ownerSupportLog || []).filter((g) => g.year === year);
+    const allTimeManwon = (context.ownerSupportLog || []).reduce((s, g) => s + (g.amountManwon || 0), 0);
+    if (!grants.length) return { grantsThisYear: 0, amountManwon: 0, allTimeManwon, acquiredAfter: [], acquiredWar: 0, warPerEok: null };
+    const firstDate = grants.map((g) => g.date).sort()[0];
+    const spendRoutes = new Set(["FA", "TRADE", "FOREIGN", "FA_COMPENSATION"]);
+    const acquiredAfter = teamPlayers(team)
+      .filter((p) => p.acquiredVia && spendRoutes.has(p.acquiredVia.type) && String(p.acquiredVia.date || "") >= firstDate)
+      .map((p) => ({ name: p.name, pos: p.pos, route: p.acquiredVia.type, war: r1(warOf(p)) }))
+      .sort((a, b) => b.war - a.war);
+    const amountManwon = grants.reduce((s, g) => s + (g.amountManwon || 0), 0);
+    const acquiredWar = r1(acquiredAfter.reduce((s, a) => s + a.war, 0));
+    return {
+      grantsThisYear: grants.length,
+      amountManwon,
+      allTimeManwon,
+      firstGrantDate: firstDate,
+      acquiredAfter: acquiredAfter.slice(0, 6),
+      acquiredWar,
+      warPerEok: amountManwon > 0 ? r1(acquiredWar / (amountManwon / 10000)) : null
+    };
   }
 
   function findPlayerAnywhere(context, playerId) {
@@ -182,7 +282,10 @@
       finance: fin
         ? { subsidy: fin.subsidy, carryover: fin.carryover, revenue: fin.seasonRevenue, payroll: fin.payroll, available: fin.available, deficitWeeks: fin.deficitWeeks }
         : null,
-      baseline: { year: snap.year, date: snap.date }
+      baseline: { year: snap.year, date: snap.date },
+      tradeLedger: buildTradeLedgerSummary(context, team.id),
+      draftClasses: buildDraftClassSummary(context, team.id),
+      ownerSupport: buildOwnerSupportSummary(context, team)
     };
 
     if (!Array.isArray(context.seasonRetros)) context.seasonRetros = [];
@@ -196,6 +299,8 @@
 
   return {
     ROUTE_LABEL,
+    recordTrade,
+    warSince,
     takeRosterSnapshot,
     buildSeasonRetrospective
   };
