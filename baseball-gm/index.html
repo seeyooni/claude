@@ -1533,7 +1533,7 @@
       <!-- (3-1) 신인 드래프트 패널 -->
       <div id="offPanel_draft" class="panel">
         <div class="panel-head">
-          <h2 class="panel-title">고교/대학 아마추어 신인 드래프트 (1~10라운드)</h2>
+          <h2 class="panel-title">고교/대학 아마추어 신인 드래프트 (1~3R 단장 직접 지명 · 4~10R 스카우트팀 위임)</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn-primary" id="btnDraftAutoRound">현재 라운드 스카우트 추천 지명</button>
             <button type="button" class="btn-secondary" id="btnDraftPassRound">지명권 포기 (PASS)</button>
@@ -1543,6 +1543,7 @@
 
         <div id="draftStatusBanner" class="weekly-summary-banner"></div>
         <div id="amateurScoutDispatchBox"></div>
+        <div id="youthViewingBox"></div>
 
         <h3 style="font-size:14px;margin:14px 0 8px">스카우트 팀 추천 지명 후보 (BPA + 포지션 보강 분석)</h3>
         <div id="draftRecGrid" class="scout-grid"></div>
@@ -1899,6 +1900,7 @@
   <script src="gm-extensions.js"></script>
   <script src="gm-setup.js"></script>
   <script src="gm-economy.js"></script>
+  <script src="gm-nonfa.js"></script>
   <script src="gm-retro.js"></script>
   <script src="gm-balance.js"></script>
   <script src="gm-ui.js"></script>

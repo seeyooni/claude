@@ -22,6 +22,7 @@ const MODULES = [
   "gm-extensions.js",
   "gm-setup.js",
   "gm-economy.js",
+  "gm-nonfa.js",
   "gm-retro.js",
   "gm-balance.js"
 ];

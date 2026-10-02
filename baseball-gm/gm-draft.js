@@ -22,6 +22,8 @@
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const TOTAL_ROUNDS = 10;
+  // 1~3라운드는 단장이 직접 지명, 4라운드부터는 스카우트팀 위임 (단장 거부권 없음)
+  const DELEGATE_FROM_ROUND = 4;
 
   // 라운드별 표준 계약금 테이블 (단위: 만원, 10,000 = 1억원)
   const ROUND_BONUS_TABLE = {
@@ -244,9 +246,10 @@
       perceivedOvr = scoutMidOvr + aiNoise;
       perceivedPot = (prospect.potential || 75) + aiNoise * 0.8;
     } else {
-      // 유저 구단 추천 점수는 스카우트 레벨에 비례한 잠재력 추정치 사용
-      const spread = Math.max(2, 12 - (context.scoutLevel || 1) * 2);
-      perceivedPot = (prospect.potential || 75) + ((se.ovrMin + se.ovrMax) / 2 - prospect.getTrueOvr()) * (spread / 12);
+      // 유저 구단 추천 점수는 스카우트 품질(레벨·조사도·단장 직관)에 따른 추정 잠재력만 사용 (실제 잠재력은 알 수 없음)
+      const setup = KBO_GM && KBO_GM.Setup;
+      const pp = setup && typeof setup.getPerceivedPotential === "function" ? setup.getPerceivedPotential(context, prospect) : null;
+      perceivedPot = pp ? pp.center : prospect.potential || 75;
     }
 
     // 2. 감독 스타일('육성' | '윈나우' | '데이터' | '균형') 반영
@@ -337,6 +340,7 @@
     // 3. 선수 소속/계약 정보 갱신
     prospect.teamId = team.id;
     prospect.acquiredVia = { type: "DRAFT", date: context.currentDate || null, fromTeamId: prospect.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    prospect.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     prospect.salary = 3000; // 신인 최저연봉 3,000만원
     prospect.contractYears = 1;
     prospect.faYears = 0;
@@ -346,6 +350,8 @@
       round: roundNumber,
       pickInRound,
       overallPick,
+      // 단장이 직접 고른 지명만 DIRECT, 스카우트 추천·위임 자동 지명은 DELEGATED
+      method: selectionMethod === "USER_MANUAL" ? "DIRECT" : selectionMethod === "AI" ? "AI" : "DELEGATED",
       teamId: team.id,
       teamName: team.name
     };
@@ -449,13 +455,17 @@
     }
 
     // 1라운드만 경쟁균형세 지명권 하락이 반영된 순서를 사용
+    if (round === TOTAL_ROUNDS) context._lastDraftCompletedYear = context.currentYear || 2025;
     const draftOrder =
       round === 1 && Array.isArray(context.draftState.round1Order)
         ? context.draftState.round1Order
         : context.draftState.draftOrder;
-    const roundPicks = [];
+    // 단장 차례에서 멈춰 있던 라운드면 그 지점부터 이어서 진행
+    const pending = context.draftState.pending && context.draftState.pending.round === round ? context.draftState.pending : null;
+    const roundPicks = pending ? pending.picks.slice() : [];
+    if (pending) context.draftState.pending = null;
 
-    for (let i = 0; i < draftOrder.length; i++) {
+    for (let i = pending ? pending.index : 0; i < draftOrder.length; i++) {
       const slotOriginalTeamId = draftOrder[i];
       const teamId = getPickOwnerTeamId(context, round, slotOriginalTeamId);
       const team = context.getTeam ? context.getTeam(teamId) : context.kboTeams.find((t) => t.id === teamId);
@@ -478,11 +488,22 @@
       }
 
       const isUserTeam = team.id === context.userTeamId;
+      // 단장 직접 지명 라운드: 앞 순번 구단들의 지명이 끝난 뒤 단장 차례에서 멈춘다 (남은 선수를 보고 고를 수 있게)
+      if (isUserTeam && options.stopBeforeUser && round < DELEGATE_FROM_ROUND && !(pending && pending.index === i)) {
+        context.draftState.pending = { round, index: i, picks: roundPicks };
+        return { round, paused: true, awaitingUser: true, picks: roundPicks, userPick: null, remainingPoolCount: context.draftPool.length };
+      }
       let chosenProspect = null;
       let selectionMethod = isUserTeam ? "USER_AUTO" : "AI";
       let isPass = false;
 
-      if (isUserTeam) {
+      if (isUserTeam && round >= DELEGATE_FROM_ROUND) {
+        // 스카우트팀 위임 지명: 스카우트팀의 추정치(스카우트 품질에 따른 Fog of War) 기준 최고 평가 유망주
+        const recs = getRecommendedPicks(context, team.id, 1, round);
+        const topRecId = recs[0] && recs[0].playerId;
+        chosenProspect = context.draftPool.find((p) => p.id === topRecId) || context.draftPool[0];
+        selectionMethod = "SCOUT_DELEGATED";
+      } else if (isUserTeam) {
         const recs = getRecommendedPicks(context, team.id, 5, round);
         let resolvedChoice = userChoice;
         if (typeof userChoice === "function") {
@@ -577,6 +598,7 @@
     const prospect = context.draftPool.splice(idx, 1)[0];
     prospect.teamId = team.id;
     prospect.acquiredVia = { type: "DRAFT", date: context.currentDate || null, fromTeamId: prospect.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    prospect.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     prospect.status = "YUKSEONG";
     prospect.salary = 3000;
     prospect.contractYears = 1;
@@ -656,6 +678,114 @@
    *   - 생략(null) 시 전 라운드 최적 유망주 자동 지명
    * @param {Object} options
    */
+  /* ═══════════════════════════════════════════════════════════════════════
+   * 청소년 국가대표 경기 단장 직관 (연 3회)
+   * - 대표팀은 실제 최상위 유망주로 구성된다 → 직관한 선수는 잠재력 추정 오차가 크게 줄어든다 (viewedByGM)
+   * - 행사일 ±10일 안에만 직관 가능, 한 해 4개 행사 중 3회까지
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const YOUTH_VIEWING_LIMIT = 3;
+  const YOUTH_VIEWING_WINDOW_DAYS = 10;
+  const YOUTH_EVENTS = [
+    { id: "UNIV_NT", mmdd: "06-14", name: "대학야구 국가대표 선발전", pick: (p) => p.origin === "UNIV", size: 12 },
+    { id: "U18_TRIAL", mmdd: "07-19", name: "U-18 청소년 대표팀 평가전", pick: (p) => p.origin === "HS" && (p.gradeYear || 3) >= 3, size: 20 },
+    { id: "U18_ASIA", mmdd: "08-30", name: "U-18 아시아 청소년 선수권", pick: (p) => p.origin === "HS" && (p.gradeYear || 3) >= 2, size: 20 },
+    { id: "U16_CUP", mmdd: "10-25", name: "U-16 유소년 대표팀 대회", pick: (p) => p.origin === "HS" && (p.gradeYear || 3) <= 2, size: 15 }
+  ];
+
+  function dayDiff(a, b) {
+    return Math.round((Date.parse(a) - Date.parse(b)) / 86400000);
+  }
+
+  function ensureYouthViewingState(context) {
+    const year = context.currentYear || 2025;
+    if (!context.youthViewing || context.youthViewing.year !== year) {
+      context.youthViewing = { year, attended: [], seenPlayerIds: [] };
+    }
+    return context.youthViewing;
+  }
+
+  /** 올해 청소년 대표 행사 목록과 상태 (UPCOMING / OPEN / ATTENDED / MISSED) */
+  function getYouthViewingEvents(context) {
+    if (!context) return [];
+    const st = ensureYouthViewingState(context);
+    const year = context.currentYear || 2025;
+    const remaining = YOUTH_VIEWING_LIMIT - st.attended.length;
+    return YOUTH_EVENTS.map((ev) => {
+      const date = `${year}-${ev.mmdd}`;
+      const diff = dayDiff(context.currentDate, date);
+      let status = "UPCOMING";
+      if (st.attended.includes(ev.id)) status = "ATTENDED";
+      else if (diff > YOUTH_VIEWING_WINDOW_DAYS) status = "MISSED";
+      else if (diff >= -YOUTH_VIEWING_WINDOW_DAYS) status = remaining > 0 ? "OPEN" : "LIMIT_REACHED";
+      return { id: ev.id, name: ev.name, date, status, size: ev.size, remaining };
+    });
+  }
+
+  function attendYouthEvent(context, eventId) {
+    if (!context) return { ok: false, reason: "컨텍스트가 없습니다." };
+    const ev = YOUTH_EVENTS.find((e) => e.id === eventId);
+    if (!ev) return { ok: false, reason: "알 수 없는 행사입니다." };
+    const status = (getYouthViewingEvents(context).find((e) => e.id === eventId) || {}).status;
+    if (status !== "OPEN") {
+      const msg = {
+        ATTENDED: "이미 직관한 행사입니다.",
+        MISSED: "행사가 이미 끝났습니다.",
+        UPCOMING: `행사일 ${YOUTH_VIEWING_WINDOW_DAYS}일 전부터 직관할 수 있습니다.`,
+        LIMIT_REACHED: `올해 직관 가능 횟수(${YOUTH_VIEWING_LIMIT}회)를 모두 사용했습니다.`
+      };
+      return { ok: false, reason: msg[status] || "지금은 직관할 수 없습니다." };
+    }
+    const st = ensureYouthViewingState(context);
+    // 대표팀은 실제 기량(현재 OVR + 잠재력) 상위 선수로 선발된다
+    const roster = (context.draftPool || [])
+      .filter(ev.pick)
+      .sort((a, b) => b.getTrueOvr() + (b.potential || 70) - (a.getTrueOvr() + (a.potential || 70)))
+      .slice(0, ev.size);
+    roster.forEach((p) => {
+      p.viewedByGM = true;
+      if (!st.seenPlayerIds.includes(p.id)) st.seenPlayerIds.push(p.id);
+    });
+    st.attended.push(ev.id);
+    const setup = KBO_GM && KBO_GM.Setup;
+    const seen = roster.map((p) => {
+      const pp = setup && setup.getPerceivedPotential ? setup.getPerceivedPotential(context, p) : null;
+      return { playerId: p.id, name: p.name, pos: p.pos, origin: p.origin, gradeYear: p.gradeYear, potentialLow: pp ? pp.low : null, potentialHigh: pp ? pp.high : null };
+    });
+    return {
+      ok: true,
+      event: { id: ev.id, name: ev.name },
+      seen,
+      remaining: YOUTH_VIEWING_LIMIT - st.attended.length,
+      summary: `[단장 직관] ${ev.name} — 대표 선수 ${seen.length}명의 잠재력을 직접 확인했습니다. (올해 남은 직관 ${YOUTH_VIEWING_LIMIT - st.attended.length}회)`
+    };
+  }
+
+  /**
+   * 단장 직접 지명 라운드(1~3R)에서 앞 순번 구단들의 지명을 먼저 진행하고 단장 차례에서 멈춘다.
+   * 반환: { round, picksBefore } — 이미 멈춰 있으면 그대로 반환
+   */
+  function prepareUserDraftTurn(context) {
+    if (!context || !context.draftState) return null;
+    const st = context.draftState;
+    const nextRound = st.completedRounds.length + 1;
+    if (nextRound >= DELEGATE_FROM_ROUND || nextRound > TOTAL_ROUNDS) return null;
+    if (st.pending && st.pending.round === nextRound) return { round: nextRound, picksBefore: st.pending.picks };
+    const res = runDraftRound(context, nextRound, null, { stopBeforeUser: true });
+    return res && res.paused ? { round: nextRound, picksBefore: res.picks } : null;
+  }
+
+  /** 단장 직접 지명(1~3R)이 끝나면 남은 라운드를 스카우트팀이 일괄 위임 지명 */
+  function runDelegatedRounds(context, options = {}) {
+    if (!context || !context.draftState) return [];
+    const results = [];
+    while (context.draftState.completedRounds.length < TOTAL_ROUNDS) {
+      const nextRound = context.draftState.completedRounds.length + 1;
+      if (nextRound < DELEGATE_FROM_ROUND) break;
+      results.push(runDraftRound(context, nextRound, null, options));
+    }
+    return results;
+  }
+
   function runFullDraft(context, userPickHandler = null, options = {}) {
     initDraftSession(context, options);
 
@@ -675,7 +805,14 @@
 
   return {
     TOTAL_ROUNDS,
+    DELEGATE_FROM_ROUND,
+    YOUTH_VIEWING_LIMIT,
+    YOUTH_VIEWING_WINDOW_DAYS,
+    getYouthViewingEvents,
+    attendYouthEvent,
     ROUND_BONUS_TABLE,
+    runDelegatedRounds,
+    prepareUserDraftTurn,
     getDraftOrder,
     getTeamShortName,
     getPickOwnerTeamId,

@@ -641,6 +641,7 @@
         // 지명 구단 1군 또는 2군 등록 (정원 준수)
         player.teamId = pickingTeam.id;
         player.acquiredVia = { type: "SECONDARY_DRAFT", date: context.currentDate || null, fromTeamId: player.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+        player.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
         if (pickingTeam.roster1G.length < 28 && round === 1) {
           player.status = "1GUN";
           pickingTeam.roster1G.push(player);
@@ -1201,6 +1202,21 @@
    */
   function offerNonFAMultiYearExtension(context, teamId, playerId, offerSpec = {}) {
     if (!context) return { ok: false, reason: "컨텍스트가 없습니다." };
+    const nonFA = getGM() && getGM().NonFA;
+    if (nonFA) {
+      // 비FA 다년계약 개편(gm-nonfa.js): 선수 요구 조건 그대로 제시 (계약금 없음)
+      const team0 = context.getTeam(teamId || context.userTeamId);
+      const p0 = team0 && team0.getAllPlayers().find((p) => p.id === playerId);
+      if (!p0) return { ok: false, reason: "대상 선수를 찾을 수 없습니다." };
+      const d = nonFA.computeDemand(context, team0, p0);
+      return nonFA.signContract(context, team0.id, playerId, {
+        years: offerSpec.years || d.desiredYears,
+        aav: offerSpec.annualSalary || d.aav,
+        optionRatio: offerSpec.optionRatio || 0,
+        structure: offerSpec.structure || "EVEN",
+        postingClause: Boolean(offerSpec.postingClause)
+      });
+    }
     const team = context.getTeam(teamId || context.userTeamId);
     if (!team) return { ok: false, reason: "구단을 찾을 수 없습니다." };
 
@@ -1286,15 +1302,18 @@
   /**
    * 특정 구단의 샐러리캡(경쟁균형세) 기준 상위 40인 국내 선수 연봉 총액 산출
    */
-  function getTop40DomesticPayroll(team) {
+  function getTop40DomesticPayroll(team, context = null) {
     if (!team) return 0;
+    const nonFA = getGM() && getGM().NonFA;
+    const capSalary = (p) => (context && nonFA ? nonFA.capSalaryOf(context, team, p) : p.salary || 0);
     const domesticPlayers = team
       .getAllPlayers()
       .filter((p) => (!p.nationality || p.nationality === "KOR") && p.status !== "MILITARY")
-      .sort((a, b) => (b.salary || 0) - (a.salary || 0))
+      .sort((a, b) => capSalary(b) - capSalary(a))
       .slice(0, 40);
 
-    return domesticPlayers.reduce((sum, p) => sum + (p.salary || 0), 0);
+    // 프랜차이즈 예외 선수(7시즌+ 1명)는 연봉 50%만 산입 (KBO판 버드 룰)
+    return domesticPlayers.reduce((sum, p) => sum + capSalary(p), 0);
   }
 
   /**
@@ -1303,7 +1322,7 @@
   function getSalaryCapLimit(context) {
     const teams = (context && context.kboTeams) || [];
     if (!teams.length) return KBO_SALARY_CAP_LIMIT;
-    const avgTop40 = teams.reduce((s, t) => s + getTop40DomesticPayroll(t), 0) / teams.length;
+    const avgTop40 = teams.reduce((s, t) => s + getTop40DomesticPayroll(t, context), 0) / teams.length;
     return avgTop40 > 0 ? round100(avgTop40 * SALARY_CAP_RATIO) : KBO_SALARY_CAP_LIMIT;
   }
 
@@ -1333,7 +1352,7 @@
     const pickDropByTeam = {};
 
     context.kboTeams.forEach((team) => {
-      const top40Payroll = getTop40DomesticPayroll(team);
+      const top40Payroll = getTop40DomesticPayroll(team, context);
       const overage = Math.max(0, top40Payroll - capLimit);
       let luxuryTaxFine = 0;
       let draftPickDrop = 0;
@@ -1459,6 +1478,7 @@
           p.status !== "MILITARY" &&
           p.age <= POSTING_MAX_AGE &&
           (Number(p.kboSeasons) || 0) >= POSTING_MIN_SEASONS &&
+          !(p.nonFAContract && p.nonFAContract.active && !p.nonFAContract.postingClause) &&
           p.postingRejectedYear !== (context.currentYear || 2025)
       )
       .map((p) => ({ p, q: getPostingQualification(p) }))
@@ -1493,6 +1513,31 @@
     });
   }
 
+  /**
+   * AI 구단 포스팅 결정 (포스팅 기간 중 하루 1회 호출): 하위권 구단일수록 이적료를 받고 보내 줄 확률이 높다
+   */
+  function runAIPostingDecisions(context, rng = Math.random) {
+    if (!context || !isPostingWindowOpen(context)) return [];
+    const year = context.currentYear || 2025;
+    if (context._aiPostingYear === year) return [];
+    context._aiPostingYear = year;
+    const rankOf = {};
+    (context.standings || []).forEach((s) => {
+      rankOf[s.teamId] = s.rank;
+    });
+    const results = [];
+    context.kboTeams.forEach((team) => {
+      if (team.id === context.userTeamId) return;
+      getMLBPostingCandidates(context, team.id).forEach((cand) => {
+        const rank = rankOf[team.id] || 5;
+        const approveProb = clamp(0.35 + (rank - 1) * 0.05, 0.35, 0.8);
+        const res = executeMLBPosting(context, team.id, cand.playerId, rng() < approveProb ? "APPROVE" : "REJECT");
+        if (res && res.ok) results.push({ teamId: team.id, decision: res.decision || "APPROVE", playerName: cand.name, summary: res.summary });
+      });
+    });
+    return results;
+  }
+
   function executeMLBPosting(context, teamId, playerId, decision = "APPROVE") {
     if (!context) return { ok: false, reason: "컨텍스트가 없습니다." };
     const team = context.getTeam(teamId || context.userTeamId);
@@ -1510,6 +1555,8 @@
     if (decision === "REJECT") {
       // 같은 해에는 다시 제안이 오지 않는다 (반복 불허로 사기가 계속 깎이는 것 방지)
       player.postingRejectedYear = context.currentYear || 2025;
+      // 꿈을 꺾인 선수는 다음 FA 때 시장 평가를 원한다 (원소속팀 잔류가 어려워짐)
+      player.wantsMarketTest = true;
       player.morale = clamp((player.morale ?? 75) - 18, 20, 100);
       player.moraleReason = "MLB 포스팅 해외 진출 불허로 인한 사기 저하";
       return {
@@ -1536,6 +1583,10 @@
     team.rosterDev = team.rosterDev.filter((p) => p.id !== player.id);
     player.status = "MLB_POSTED";
     player.teamId = "MLB";
+    if (player.nonFAContract && player.nonFAContract.active) {
+      player.nonFAContract.active = false; // 포스팅 진출로 비FA 다년계약 자동 파기
+      player.nonFAContract.voidedByPosting = true;
+    }
 
     // 구단 예산에 포스팅 이적료(+100억~300억 원) 유입 (밸런스 범위 100억~250억 준수)
     const feeManwon = candMeta.postingFeeManwon;
@@ -2781,11 +2832,13 @@
 
     tradeChip.teamId = partnerTeam.id;
     tradeChip.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: tradeChip.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    tradeChip.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     tradeChip.status = "2GUN";
     partnerTeam.roster2G.push(tradeChip);
 
     targetPlayer.teamId = team.id;
     targetPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: targetPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    targetPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     if (team.roster1G.length < 28) {
       targetPlayer.status = "1GUN";
       team.roster1G.push(targetPlayer);
@@ -3888,12 +3941,14 @@
 
     sendPlayer.teamId = partnerTeam.id;
     sendPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: sendPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    sendPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     sendPlayer.status = partnerTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (sendPlayer.status === "1GUN") partnerTeam.roster1G.push(sendPlayer);
     else partnerTeam.roster2G.push(sendPlayer);
 
     acqPlayer.teamId = userTeam.id;
     acqPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: acqPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    acqPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     acqPlayer.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (acqPlayer.status === "1GUN") userTeam.roster1G.push(acqPlayer);
     else userTeam.roster2G.push(acqPlayer);
@@ -4751,7 +4806,7 @@
         p.salary = 500000;
       });
     // 감사 루프의 연봉 보정으로 리그 평균이 부풀어 있으므로, 프로브 구단 기준 10억 초과가 되도록 상한을 명시한다
-    const taxProbeCap = getTop40DomesticPayroll(taxProbeTeam) - 100000;
+    const taxProbeCap = getTop40DomesticPayroll(taxProbeTeam, context) - 100000;
     const taxProbe = evaluateLuxuryTaxAndPenalties(context, { capLimit: taxProbeCap });
     const taxProbeReport = (taxProbe.reports || []).find((r) => r.teamId === taxProbeTeam.id) || {};
     const luxuryTaxEscalationVerified =
@@ -4863,6 +4918,7 @@
       otherTeam.roster2G.push(leaving);
       otherTeam.roster2G = otherTeam.roster2G.filter((p) => p.id !== joining.id);
       joining.acquiredVia = { type: "TRADE", date: probeCtx.currentDate };
+      joining.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
       probeTeam.roster2G.push(joining);
       const retro = gm.Retro.buildSeasonRetrospective(probeCtx);
       seasonRetroVerified =
@@ -4873,6 +4929,32 @@
         Number.isFinite(retro.luckWins);
     }
     assert(seasonRetroVerified, `assert(seasonRetroVerified) 실패: 시즌 회고 리포트의 영입/이탈 분류가 올바르지 않습니다.`);
+
+    // (15) 비FA 다년계약: 계약금 없음 · 요구액 미달 제시는 거절 · 체결 시 연봉표대로 예산·FA 차단 · 프랜차이즈 예외 50%
+    let nonFAContractVerified = true;
+    if (gm.NonFA) {
+      const nfCtx = gm.Setup.createGameContextSync({ userTeamId: "KIA", autoSave: false });
+      nfCtx.currentDate = `${nfCtx.currentYear}-06-01`;
+      const nfTeam = nfCtx.getUserTeam();
+      const cand = gm.NonFA.getCandidates(nfCtx, nfTeam.id)[0];
+      const nfPlayer = cand && nfTeam.getAllPlayers().find((p) => p.id === cand.playerId);
+      const budgetBefore = nfTeam.budget;
+      const lowball = cand ? gm.NonFA.signContract(nfCtx, nfTeam.id, cand.playerId, { years: cand.desiredYears, aav: Math.round(cand.demandAAV * 0.7) }) : null;
+      const fair = cand ? gm.NonFA.signContract(nfCtx, nfTeam.id, cand.playerId, { years: cand.desiredYears, aav: cand.demandAAV, structure: "BACK" }) : null;
+      const sched = nfPlayer && nfPlayer.nonFAContract ? nfPlayer.nonFAContract.schedule : [];
+      const franchise = gm.NonFA.getFranchiseEligible(nfCtx, nfTeam.id)[0];
+      const capBefore = getTop40DomesticPayroll(nfTeam, nfCtx);
+      if (franchise) gm.NonFA.setFranchisePlayer(nfCtx, nfTeam.id, franchise.playerId);
+      const capAfter = getTop40DomesticPayroll(nfTeam, nfCtx);
+      nonFAContractVerified =
+        Boolean(cand && lowball && !lowball.ok && fair && fair.ok) &&
+        nfTeam.budget === budgetBefore &&
+        sched.length === cand.desiredYears &&
+        sched[sched.length - 1].salary > sched[0].salary &&
+        nfPlayer.contractYears > 1 &&
+        (!franchise || capAfter < capBefore);
+    }
+    assert(nonFAContractVerified, `assert(nonFAContractVerified) 실패: 비FA 다년계약(계약금 없음·요구액 협상·연봉표·프랜차이즈 예외) 검증 실패`);
 
     const elapsedMs = Date.now() - startMs;
     const report = {
@@ -4914,7 +4996,8 @@
         { expr: "assert(stoveAutomationVerified)", actual: stoveAutomationVerified, expected: true, passed: stoveAutomationVerified },
         { expr: "assert(postingSeasonRuleVerified)", actual: postingSeasonRuleVerified, expected: true, passed: postingSeasonRuleVerified },
         { expr: "assert(yearlyDevelopmentVerified)", actual: yearlyDevelopmentVerified, expected: true, passed: yearlyDevelopmentVerified },
-        { expr: "assert(seasonRetroVerified)", actual: seasonRetroVerified, expected: true, passed: seasonRetroVerified }
+        { expr: "assert(seasonRetroVerified)", actual: seasonRetroVerified, expected: true, passed: seasonRetroVerified },
+        { expr: "assert(nonFAContractVerified)", actual: nonFAContractVerified, expected: true, passed: nonFAContractVerified }
       ]
     };
 
@@ -4957,6 +5040,7 @@
     POSTING_MIN_SEASONS,
     POSTING_WINDOW,
     isPostingWindowOpen,
+    runAIPostingDecisions,
     SALARY_CAP_RATIO,
     LUXURY_TAX_TIERS,
     getSalaryCapLimit,

@@ -645,6 +645,11 @@
         }
       }
 
+      // 비FA 다년계약: 지난 시즌 옵션 정산, 새 시즌 연봉표 반영, 리스크 이벤트 (시즌 기록 리셋 전)
+      if (KBO_GM && KBO_GM.NonFA && player.nonFAContract && player.nonFAContract.active) {
+        KBO_GM.NonFA.processSeasonTransition(context, context.getTeam(player.teamId), player, completedYear, rng);
+      }
+
       // 연간 성장 (시즌 기록 리셋 전: 출전 시간 반영) 및 KBO 등록 시즌 +1
       if (typeof player.applyYearlyDevelopment === "function") {
         const growthPreset =

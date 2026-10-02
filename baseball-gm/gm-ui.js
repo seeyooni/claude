@@ -1055,6 +1055,18 @@
         : { allowed: true, reason: "신인 드래프트 지명 가능" };
     const canPickNow = Boolean(canPickRes && canPickRes.allowed && !isDone);
 
+    // 직접 지명 라운드(1~3R): 앞 순번 구단 지명을 먼저 진행하고 단장 차례에서 멈춘다
+    let userTurnInfo = null;
+    if (canPickNow && GM.Draft && typeof GM.Draft.prepareUserDraftTurn === "function") {
+      userTurnInfo = GM.Draft.prepareUserDraftTurn(ctx);
+    }
+    const draftTurnBannerHtml =
+      userTurnInfo && userTurnInfo.picksBefore && userTurnInfo.picksBefore.length
+        ? `<div class="tiny" style="margin-top:6px"><strong>${userTurnInfo.round}라운드 앞 순번 지명 결과:</strong> ${userTurnInfo.picksBefore
+            .map((pk) => `${esc(pk.teamName || pk.teamId)} ${pk.passed ? "PASS" : `${esc(pk.playerName || "")}(${esc(pk.pos || "")})`}`)
+            .join(" · ")} — 이제 우리 차례입니다.</div>`
+        : "";
+
     const btnAutoR = $("btnDraftAutoRound");
     const btnPassR = $("btnDraftPassRound");
     const btnRunAll = $("btnDraftRunAll");
@@ -1102,9 +1114,46 @@
         ${dateStatusHtml}
       </div>
       <div class="tnum" style="margin-top:4px">지명 순서(뒤 이름): ${orderMascotLabels.join(" → ")}</div>
+      <div class="tiny muted" style="margin-top:4px">1~3라운드는 단장이 직접 지명하고, 4~10라운드는 스카우트팀이 스카우트 추정치로 지명합니다 (번복 불가). 9월 30일까지 지명하지 않으면 스카우트팀이 마무리합니다.</div>
+      ${draftTurnBannerHtml}
     `;
 
     // [시스템 4 & 요청 3] 고교 1~3학년 · 대학 리그 · 독립야구단 스카우트 파견 컨트롤 렌더링
+    // 청소년 국가대표 경기 단장 직관 (연 3회)
+    const youthEl = $("youthViewingBox");
+    if (youthEl && GM.Draft && typeof GM.Draft.getYouthViewingEvents === "function") {
+      const evs = GM.Draft.getYouthViewingEvents(ctx);
+      const statusLabel = { UPCOMING: "예정", OPEN: "직관 가능", ATTENDED: "직관 완료", MISSED: "지나감", LIMIT_REACHED: "횟수 소진" };
+      const lastSeen = STATE.lastYouthViewing;
+      youthEl.innerHTML = `
+        <div class="report-box" style="margin:12px 0">
+          <strong>🏟️ 청소년 국가대표 경기 단장 직관</strong>
+          <span class="tiny muted"> · 올해 ${evs.length ? evs[0].remaining : 0} / ${GM.Draft.YOUTH_VIEWING_LIMIT || 3}회 남음 · 행사일 ±${GM.Draft.YOUTH_VIEWING_WINDOW_DAYS || 10}일 안에만 가능 · 직관한 선수는 잠재력 추정이 크게 정확해집니다</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+            ${evs
+              .map(
+                (ev) => `
+              <div class="scout-card" style="min-width:210px;flex:1">
+                <strong style="font-size:13px">${esc(ev.name)}</strong>
+                <div class="tiny muted">${esc(ev.date)} · 대표 ${ev.size}명 · ${statusLabel[ev.status] || ev.status}</div>
+                <button type="button" class="btn-xs ${ev.status === "OPEN" ? "primary" : "ghost"}" style="margin-top:6px" data-attend-youth="${esc(ev.id)}" ${ev.status === "OPEN" ? "" : "disabled"}>
+                  ${ev.status === "ATTENDED" ? "✅ 직관 완료" : ev.status === "OPEN" ? "단장 직관 가기" : statusLabel[ev.status] || ev.status}
+                </button>
+              </div>`
+              )
+              .join("")}
+          </div>
+          ${
+            lastSeen && lastSeen.seen
+              ? `<div class="tiny" style="margin-top:8px"><strong>최근 직관 (${esc(lastSeen.event.name)}):</strong> ${lastSeen.seen
+                  .slice(0, 20)
+                  .map((s) => `${esc(s.name)}(${esc(s.pos)} · 잠재력 ${s.potentialLow}~${s.potentialHigh})`)
+                  .join(" · ")}</div>`
+              : ""
+          }
+        </div>`;
+    }
+
     const scoutDispEl = $("amateurScoutDispatchBox");
     if (scoutDispEl && GM.Setup) {
       const disp = ctx.scoutDispatch || {
@@ -2479,11 +2528,11 @@
       .join("");
 
     // 5) 샐러리캡(경쟁균형세: 리그 평균 상위 40인 연봉 × 120%) 및 비FA 다년 연장 계약 대상자
-    const top40Payroll = ext.getTop40DomesticPayroll(userTeam);
+    const top40Payroll = ext.getTop40DomesticPayroll(userTeam, ctx);
     const capLimit = typeof ext.getSalaryCapLimit === "function" ? ext.getSalaryCapLimit(ctx) : ext.KBO_SALARY_CAP_LIMIT || 1200000;
     const lastTax = (userTeam.luxuryTaxHistory || []).slice(-1)[0] || null;
     const capDiff = capLimit - top40Payroll;
-    const nonFaCands = ext.getNonFAExtensionCandidates(userTeam);
+    const nonFaCands = GM.NonFA ? GM.NonFA.getCandidates(ctx, userTeam.id) : ext.getNonFAExtensionCandidates(userTeam);
     const signedExts = userTeam.nonFAExtensions || [];
 
     container.innerHTML = `
@@ -2719,37 +2768,7 @@
             <span class="tnum font-bold ${capDiff >= 0 ? "text-good" : "text-bad"}">${fmtMoney(top40Payroll)}</span> / 상한선 ${fmtMoney(capLimit)}
             (${capDiff >= 0 ? `여유액 ${fmtMoney(capDiff)}` : `상한 초과 ${fmtMoney(Math.abs(capDiff))} · 예상 제재금 ${fmtMoney(Math.round(Math.abs(capDiff) * 0.5))}`})
           </div>
-          <h4 style="font-size:13.5px;margin:8px 0">예비 FA (6~7년차) 프랜차이즈 핵심 선수 비FA 다년 연장 계약 대상자</h4>
-          <div class="scout-grid">
-            ${
-              nonFaCands.slice(0, 6).map(
-                (c) => `
-                <div class="scout-card">
-                  <div class="scout-card-head">
-                    <span class="pos-code">${esc(c.pos)}</span>
-                    <strong>${esc(c.name)}</strong>
-                    <span class="muted">(${c.age}세 · FA까지 ${c.yearsToFA}년 · OVR ${c.trueOvr})</span>
-                  </div>
-                  <div class="scout-metrics tnum">
-                    <span>현 연봉: ${fmtMoney(c.currentSalary)}</span>
-                    <span class="sep">·</span>
-                    <span>권장 조건: <strong>${c.recommendedYears}년 총액 ${fmtMoney(c.recommendedTotal)}</strong></span>
-                  </div>
-                  <div class="scout-actions">
-                    <button type="button" class="btn-xs primary" data-offer-nonfa-ext="${c.playerId}">
-                      ${c.recommendedYears}년 비FA 다년 연장 계약 체결 (${fmtMoney(c.recommendedTotal)})
-                    </button>
-                  </div>
-                </div>
-              `
-              ).join("") || `<div class="empty-box">현재 비FA 다년 연장 계약 대상(FA 6~7년차) 선수가 없습니다.</div>`
-            }
-          </div>
-          ${
-            signedExts.length
-              ? `<div class="tiny text-good" style="margin-top:8px"><strong>체결 완료된 비FA 다년 계약:</strong> ${signedExts.map((x) => `${esc(x.playerName)}(${x.years}년 ${fmtMoney(x.totalAmount)})`).join(" · ")}</div>`
-              : ""
-          }
+          ${renderNonFAContractSectionHtml(ctx, userTeam, nonFaCands)}
         </div>
 
         <!-- [6] [PART 5-1] KBO-MLB 포스팅 시스템 (간판 스타 해외 진출 & +100억~300억 이적료 유입) -->
@@ -3364,7 +3383,7 @@
                   (c) => `<tr>
                     <td class="tnum">${c.year}</td>
                     <td class="tnum">${c.picks}명 (잔류 ${c.withUs})</td>
-                    <td class="tnum">${sign(c.war)}</td>
+                    <td class="tnum">${sign(c.war)}<div class="tiny muted">직접 ${sign(c.directWar || 0)} · 위임 ${sign(c.delegatedWar || 0)}</div></td>
                     <td class="tiny">${c.best ? `${esc(c.best.name)} ${c.best.round}R · OVR ${c.best.ovr}` : "-"}</td>
                   </tr>`
                 )
@@ -4290,6 +4309,145 @@
     `;
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+   * 비FA 다년계약 (KBO_GM.NonFA): 대상자 · 협상 모달 · 진행 중 계약 · 프랜차이즈 예외
+   * ═══════════════════════════════════════════════════════════════════════ */
+  function renderNonFAContractSectionHtml(ctx, userTeam, cands) {
+    const NF = GM.NonFA;
+    if (!NF) return "";
+    const active = userTeam
+      .getAllPlayers()
+      .filter((p) => p.nonFAContract && p.nonFAContract.active)
+      .sort((a, b) => (b.nonFAContract.aav || 0) - (a.nonFAContract.aav || 0));
+    const franchiseList = NF.getFranchiseEligible(ctx, userTeam.id);
+    const events = (ctx.nonFAEventLog || []).filter((e) => e.teamId === userTeam.id).slice(0, 5);
+    return `
+      <h4 style="font-size:13.5px;margin:8px 0">비FA 다년계약 (계약금 없음 · 보장 연봉 + 성과 옵션 · 2~${NF.MAX_YEARS}년)</h4>
+      <div class="tiny muted" style="margin-bottom:8px">
+        KBO 3시즌 이상 · 만 21~35세 국내 선수. 선수 요구액은 FA 시장가 × FA까지 남은 기간 × 포지션 희소성 × 부상 이력 × 우리 구단 여유 예산으로 정해집니다.
+        옵션은 시즌 WAR ${NF.OPTION_WAR_THRESHOLD} 이상일 때만 지급되고, 선수는 옵션을 절반 가치로 봅니다. 포스팅 허용 조항이 없으면 계약 기간 중 포스팅할 수 없습니다.
+      </div>
+      <div class="scout-grid">
+        ${
+          cands
+            .slice(0, 8)
+            .map(
+              (c) => `
+          <div class="scout-card">
+            <div class="scout-card-head">
+              <span class="pos-code">${esc(c.pos)}</span>
+              <strong>${esc(c.name)}</strong>
+              <span class="muted">(${c.age}세 · OVR ${c.trueOvr} · KBO ${c.kboSeasons}시즌 · FA까지 ${c.yearsToFA}년)</span>
+            </div>
+            <div class="scout-metrics tnum">
+              <span>현 연봉 ${fmtMoney(c.currentSalary)}</span><span class="sep">·</span>
+              <span>요구: <strong>${c.desiredYears}년 · 연평균 ${fmtMoney(c.demandAAV)}</strong></span>
+            </div>
+            <div class="tiny muted" style="margin:4px 0">${c.notes.map(esc).join(" · ")}${c.postingClauseValued ? " · 포스팅 조항을 원함(-8%)" : ""}</div>
+            <div class="scout-actions"><button type="button" class="btn-xs primary" data-nonfa-negotiate="${c.playerId}">협상 테이블 열기</button></div>
+          </div>`
+            )
+            .join("") || `<div class="empty-box">현재 비FA 다년계약 대상 선수가 없습니다.</div>`
+        }
+      </div>
+      <div class="grid-2col" style="margin-top:10px">
+        <div>
+          <strong class="tiny">진행 중인 비FA 다년계약</strong>
+          <table class="gm-table compact"><tbody>
+            ${
+              active
+                .map((p) => {
+                  const c = p.nonFAContract;
+                  const now = c.schedule.find((x) => x.year === ctx.currentYear) || c.schedule[0];
+                  return `<tr><td>${esc(p.name)} <span class="muted">${esc(p.pos)}</span></td><td class="tnum">${c.startYear}~${c.startYear + c.years - 1}</td><td class="tnum">올해 ${fmtMoney(now.salary)}${now.option ? ` +옵션 ${fmtMoney(now.option)}` : ""}</td><td class="tiny">${esc((NF.STRUCTURES[c.structure] || {}).label || c.structure)}${c.postingClause ? " · 포스팅 허용" : ""}</td></tr>`;
+                })
+                .join("") || `<tr><td class="muted">없음</td></tr>`
+            }
+          </tbody></table>
+          ${events.length ? `<div class="tiny" style="margin-top:6px"><strong>최근 계약 이벤트:</strong> ${events.map((e) => `${e.year} ${esc(e.playerName)}: ${e.events.map(esc).join(", ")}`).join(" · ")}</div>` : ""}
+        </div>
+        <div>
+          <strong class="tiny">🏅 프랜차이즈 예외 (KBO판 버드 룰 · 1명)</strong>
+          <div class="tiny muted">한 구단에서 ${NF.FRANCHISE_MIN_SEASONS}시즌 이상 뛴 선수 1명은 경쟁균형세 산정 시 연봉의 50%만 반영됩니다.</div>
+          <select id="franchiseSelect" class="gm-select" style="margin-top:6px;max-width:100%">
+            <option value="">— 지정 안 함 —</option>
+            ${franchiseList
+              .map((f) => `<option value="${esc(f.playerId)}" ${userTeam.franchisePlayerId === f.playerId ? "selected" : ""}>${esc(f.name)} (${esc(f.pos)} · ${f.tenure}시즌 · 연봉 ${fmtMoney(f.salary)})</option>`)
+              .join("")}
+          </select>
+          <button type="button" class="btn-xs" data-set-franchise="1">지정 저장</button>
+        </div>
+      </div>`;
+  }
+
+  function openNonFANegotiationModal(playerId) {
+    const ctx = STATE.ctx;
+    const NF = GM.NonFA;
+    const team = ctx.getUserTeam();
+    const player = team.getAllPlayers().find((p) => p.id === playerId);
+    if (!NF || !player) return;
+    const d = NF.computeDemand(ctx, team, player);
+    $("gmModalTitle").textContent = `✍️ 비FA 다년계약 협상 — ${player.name} (${player.pos}, ${player.age}세)`;
+    $("gmModalBody").innerHTML = `
+      <div class="weekly-summary-banner" style="margin-bottom:10px">
+        에이전트 요구: <strong>${d.desiredYears}년 · 연평균 ${fmtMoney(d.aav)}</strong> (FA 시장가 ${fmtMoney(d.marketAAV)} 기준) · 옵션 허용 ${Math.round(d.maxOptionRatio * 100)}%까지
+        <div class="tiny muted">${d.notes.map(esc).join(" · ")}${d.postingClauseValued ? " · 포스팅 허용 조항을 넣으면 요구액 -8%" : ""}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
+        <label class="tiny">계약 기간 (년)<input type="number" id="nfYears" class="gm-select" min="${NF.MIN_YEARS}" max="${NF.MAX_YEARS}" value="${d.desiredYears}"></label>
+        <label class="tiny">연평균 (만원)<input type="number" id="nfAav" class="gm-select" step="500" value="${d.aav}"></label>
+        <label class="tiny">옵션 비율 (%)<input type="number" id="nfOption" class="gm-select" min="0" max="50" step="5" value="0"></label>
+        <label class="tiny">연봉 구조
+          <select id="nfStructure" class="gm-select">${Object.values(NF.STRUCTURES).map((s) => `<option value="${s.key}">${esc(s.label)}</option>`).join("")}</select>
+        </label>
+        <label class="tiny" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="nfPosting"> 포스팅 허용 조항</label>
+      </div>
+      <div id="nfEvalBox" style="margin-top:10px"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button type="button" class="btn-primary" data-nonfa-sign="${esc(player.id)}">이 조건으로 계약 제시</button>
+      </div>`;
+    $("gmModalBackdrop").hidden = false;
+    const readOffer = () => ({
+      years: Number($("nfYears").value),
+      aav: Number($("nfAav").value),
+      optionRatio: Number($("nfOption").value) / 100,
+      structure: $("nfStructure").value,
+      postingClause: $("nfPosting").checked
+    });
+    const refresh = () => {
+      const offer = readOffer();
+      const ev = NF.evaluateOffer(ctx, team, player, offer);
+      const sched = NF.previewSchedule(ctx, offer);
+      $("nfEvalBox").innerHTML = `
+        <div class="report-box ${ev.accept ? "text-good" : "text-bad"}"><strong>${esc(ev.message)}</strong>
+          <div class="tiny muted">선수가 보는 실질 연평균 ${fmtMoney(ev.effectiveAAV)} / 필요 ${fmtMoney(ev.requiredAAV)} · 총액 ${fmtMoney(ev.aav * ev.years)} (보장 ${fmtMoney(Math.round(ev.aav * ev.years * (1 - ev.optionRatio)))})</div>
+        </div>
+        <div class="tiny" style="margin-top:6px"><strong>연봉표:</strong> ${sched
+          .slice(0, 11)
+          .map((x) => `${x.year} ${fmtMoney(x.salary)}${x.option ? `+${fmtMoney(x.option)}` : ""}`)
+          .join(" · ")}</div>`;
+    };
+    ["nfYears", "nfAav", "nfOption", "nfStructure", "nfPosting"].forEach((id) => {
+      $(id).addEventListener("input", refresh);
+      $(id).addEventListener("change", refresh);
+    });
+    refresh();
+  }
+
+  /** 단장 직접 지명(1~3R) 완료 후 4~10라운드 스카우트팀 위임 지명 */
+  function runDelegatedDraftIfReady(ctx) {
+    if (!ctx || !ctx.draftState || !GM.Draft || typeof GM.Draft.runDelegatedRounds !== "function") return null;
+    const done = ctx.draftState.completedRounds.length;
+    if (done < (GM.Draft.DELEGATE_FROM_ROUND || 4) - 1 || done >= 10) return null;
+    const results = GM.Draft.runDelegatedRounds(ctx);
+    const picks = results.map((r) => r.userPick).filter(Boolean);
+    showToast(
+      `4~10라운드는 스카우트팀이 지명했습니다: ${picks.map((p) => `${p.playerName}(${p.pos})`).join(", ") || "지명 없음"}`,
+      "info"
+    );
+    return results;
+  }
+
   function runWiringAuditModal() {
     try {
       const rep =
@@ -4445,6 +4603,8 @@
             <div><strong>3-1. 구단 재정 (난이도: 쉬움·보통·어려움):</strong> 예산은 한 해 운영 봉투이고 <strong>여유 예산 = 예산 − 연봉총액</strong>입니다. FA 계약금·첫해 연봉·시설 투자·현금 트레이드는 여유 예산 안에서만 가능합니다. 매 시즌 예산은 <strong>모기업 지원금(리그 평균 연봉 × 직전 순위 역순 배율: 1위 1.20배 ~ 10위 1.65배) + 이월금</strong>으로 정해지고, 정규시즌에는 매주 자체 수입과 운영비가 정산됩니다. 적자(여유 예산 마이너스)로 주간 정산을 맞으면 구단주 신임도가 깎이며, 상위권을 지키려면 구단주 증액 요청이 필요할 수 있습니다.</div>
             <div><strong>3-2. 전력 평준화 제도:</strong> 신인 드래프트·2차 드래프트·외국인 선수 영입은 순위 역순으로 진행됩니다. 경쟁균형세 상한은 리그 평균 상위 40인 연봉의 120%이며, 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 150% + 9단계 하락입니다. 스토브리그 업무를 직접 처리하지 않으면 마감일(12/1 연봉·FA 공시, 1/15 FA 시장, 1/31 외국인)에 자동 처리됩니다. FA 공시 후 7일은 원소속구단 우선협상 기간으로, 타 구단 FA는 기간이 끝나야 공개됩니다.</div>
             <div><strong>3-3. 상무 · MLB 포스팅:</strong> 시작 시 만 25세 이상은 군필, 21~24세는 군필·미필이 섞여 있습니다. 상무는 구단당 4명까지이며 우리 구단 입대는 단장이 직접 결정합니다. MLB 포스팅 제안은 11월 1일~12월 15일에 KBO 7시즌 이상 · 만 31세 이하 · OVR 90+ 또는 단일 능력치 95+ 선수 중 구단당 1명에게만 들어옵니다. 선수는 매 시즌 나이·잠재력·출전 시간에 따라 성장하며, 가끔 각성 시즌이 찾아옵니다.</div>
+            <div><strong>3-4. 신인 드래프트:</strong> 9월 23일~30일. 1~3라운드는 앞 순번 구단 지명 후 단장 차례에서 직접 고르고, 4~10라운드는 스카우트팀이 스카우트 추정치로 지명합니다(번복 불가). 유망주 잠재력은 스카우트 레벨·조사도·단장 직관에 따라 정확도가 달라지며, 청소년 국가대표 경기(대학 대표 선발전·U-18 평가전·U-18 아시아 선수권·U-16 대회)를 연 3회까지 직관할 수 있습니다.</div>
+            <div><strong>3-5. 비FA 다년계약:</strong> 계약금 없이 보장 연봉 + 성과 옵션(시즌 WAR 2.0 이상 지급), 2~11년, 균등·앞쪽·뒤쪽 몰아주기. 요구액은 FA 시장가 × FA까지 남은 기간 × 포지션 희소성 × 부상 이력 × 우리 여유 예산. 포스팅 허용 조항이 없으면 계약 중 포스팅 불가. 7시즌 이상 프랜차이즈 선수 1명은 경쟁균형세 산정 시 연봉 50% 제외. 32세 이상 5년+ 계약은 에이징 커브 파동 위험.</div>
             <div><strong>4. 9월 3주차 신인 드래프트 &amp; 스카우트 파견:</strong> 고교 1~3학년 및 대학 리그에 스카우트를 파견해 유망주 오차(Fog of War)를 줄이고 9월 3주차에 드래프트를 진행합니다.</div>
             <div><strong>5. 외국인 선수 엄격 제한 &amp; 6주 대체 외인:</strong> 외국인은 육성군 등록이 절대 불가하며 방출 시 영구 퇴출됩니다. 6주 이상 장기 부상 시 6주 단기 대체 외국인을 영입할 수 있습니다.</div>
           </div>
@@ -4540,6 +4700,7 @@
             "gm-extensions.js",
             "gm-setup.js",
             "gm-economy.js",
+            "gm-nonfa.js",
             "gm-retro.js",
             "gm-balance.js",
             "gm-ui.js"
@@ -4774,6 +4935,7 @@
         if (nextR > 10) return showToast("이미 10라운드 지명이 모두 완료되었습니다.");
         const res = GM.Draft.runDraftRound(ctx, nextR, null);
         showToast(`${nextR}라운드 지명 완료: ${res.userPick ? res.userPick.playerName : "완료"}`, "good");
+        runDelegatedDraftIfReady(ctx);
         renderAll();
       });
     }
@@ -4791,6 +4953,7 @@
         if (nextR > 10) return;
         GM.Draft.runDraftRound(ctx, nextR, "PASS");
         showToast(`${nextR}라운드 지명권을 포기(PASS)했습니다.`);
+        runDelegatedDraftIfReady(ctx);
         renderAll();
       });
     }
@@ -5033,6 +5196,49 @@
         return;
       }
 
+      const nfNegBtn = e.target.closest("[data-nonfa-negotiate]");
+      if (nfNegBtn) {
+        openNonFANegotiationModal(nfNegBtn.dataset.nonfaNegotiate);
+        return;
+      }
+      const nfSignBtn = e.target.closest("[data-nonfa-sign]");
+      if (nfSignBtn && GM.NonFA) {
+        const res = GM.NonFA.signContract(STATE.ctx, STATE.ctx.userTeamId, nfSignBtn.dataset.nonfaSign, {
+          years: Number($("nfYears").value),
+          aav: Number($("nfAav").value),
+          optionRatio: Number($("nfOption").value) / 100,
+          structure: $("nfStructure").value,
+          postingClause: $("nfPosting").checked
+        });
+        if (res.ok) {
+          $("gmModalBackdrop").hidden = true;
+          showToast(res.summary, "good");
+          renderAll();
+        } else {
+          showToast(res.reason, "bad");
+        }
+        return;
+      }
+      if (e.target.closest("[data-set-franchise]") && GM.NonFA) {
+        const res = GM.NonFA.setFranchisePlayer(STATE.ctx, STATE.ctx.userTeamId, ($("franchiseSelect") || {}).value || null);
+        showToast(res.ok ? res.summary : res.reason, res.ok ? "good" : "bad");
+        renderAll();
+        return;
+      }
+
+      const youthBtn = e.target.closest("[data-attend-youth]");
+      if (youthBtn && GM.Draft && typeof GM.Draft.attendYouthEvent === "function") {
+        const res = GM.Draft.attendYouthEvent(STATE.ctx, youthBtn.dataset.attendYouth);
+        if (res.ok) {
+          STATE.lastYouthViewing = res;
+          showToast(res.summary, "good");
+        } else {
+          showToast(res.reason, "bad");
+        }
+        renderAll();
+        return;
+      }
+
       const draftPickBtn = e.target.closest("[data-draft-pick]");
       if (draftPickBtn) {
         const pid = draftPickBtn.dataset.draftPick;
@@ -5052,6 +5258,7 @@
           `${nextR}라운드 지명 완료: ${res.userPick ? `${res.userPick.playerName} (${res.userPick.pos})` : ""}`,
           "good"
         );
+        runDelegatedDraftIfReady(ctx);
         renderAll();
         return;
       }

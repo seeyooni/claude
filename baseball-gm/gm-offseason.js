@@ -90,7 +90,9 @@
       if ((rec.rbi || 0) >= 80) statBonus += (rec.rbi - 75) * 250;
     }
 
-    const rawTarget = warBasedValue + statBonus;
+    // 슈퍼스타 프리미엄: OVR 88부터 1점당 +8% (90 → +24%, 95 → +64%) — 스타를 붙잡는 비용을 키워 전력 쏠림을 완화
+    const starPremium = 1 + Math.max(0, ovr - 87) * 0.08;
+    const rawTarget = (warBasedValue + statBonus) * starPremium;
 
     // 기존 연봉 관성 반영 (성적이 좋아도 급격한 점프 완화, 성적이 부진하면 15~30% 삭감선 형성)
     let blended;
@@ -102,7 +104,7 @@
       blended = Math.max(prevSalary * 0.68, prevSalary * cutResistance + rawTarget * (1 - cutResistance));
     }
 
-    return clamp(round100(blended), MIN_SALARY, 250000);
+    return clamp(round100(blended), MIN_SALARY, 400000);
   }
 
   /**
@@ -944,7 +946,9 @@
       offerOpt = autoSplit.Opt;
     }
 
-    const homeTeamBonus = options.isHomeTeam ? (options.isPriorityPhase ? 1.07 : 1.03) : 1.0;
+    // 포스팅 불허 등으로 시장 평가를 원하게 된 선수는 원소속팀 프리미엄이 사라진다
+    const homeTeamBonus =
+      options.isHomeTeam && !player.wantsMarketTest ? (options.isPriorityPhase ? 1.07 : 1.03) : options.isHomeTeam ? 0.97 : 1.0;
     const negotiatorBonus = options.hasNegotiatorTrait ? 1.05 : 1.0;
 
     const rawUOffer = offerDP * 1.15 + offerBS + offerOpt * alpha_player + offerY * Year_Bonus;
@@ -1040,12 +1044,15 @@
       competitionLevel: faGrade === "A" ? 0.65 : faGrade === "B" ? 0.50 : 0.35
     });
 
+    // 슈퍼스타 FA 프리미엄: OVR 88부터 1점당 +6%
+    const starOvr = typeof player.getTrueOvr === "function" ? player.getTrueOvr() : 70;
+    const starMul = 1 + Math.max(0, starOvr - 87) * 0.06;
     const demandYears = breakdown.years;
-    const demandSigningBonus = breakdown.downPaymentManwon;
-    const demandBaseSalaryTotal = breakdown.baseSalaryTotalManwon;
-    const demandAnnual = breakdown.annualBaseSalaryManwon;
-    const demandOption = breakdown.incentivesManwon;
-    const demandTotal = breakdown.totalManwon;
+    const demandSigningBonus = round100(breakdown.downPaymentManwon * starMul);
+    const demandBaseSalaryTotal = round100(breakdown.baseSalaryTotalManwon * starMul);
+    const demandAnnual = round100(breakdown.annualBaseSalaryManwon * starMul);
+    const demandOption = round100(breakdown.incentivesManwon * starMul);
+    const demandTotal = round100(breakdown.totalManwon * starMul);
 
     return {
       faGrade,
@@ -1118,6 +1125,7 @@
         p.formerTeamId = team.id;
         p.formerTeamName = team.name;
         p.status = "FA";
+        if (p.nonFAContract && p.nonFAContract.active) p.nonFAContract.active = false; // 계약 종료 후 FA 공시
         p.teamId = null;
         p.faProfile = evaluateFAPlayerMarketProfile(p, context);
         context.faPool.push(p);
@@ -1257,13 +1265,16 @@
         // FA 공시 선수는 로스터(연봉총액)에서 빠져 있으므로, 여유 예산으로 계약금 + 첫해 연봉을 모두 감당해야 잔류 가능
         const retainAnnual = Math.round(((prof.demandTotal || 0) - (prof.demandSigningBonus || 0)) / Math.max(1, prof.demandYears || 1));
         const canAfford = formerTeam.getAvailableBudget() >= (prof.demandSigningBonus || 0) + retainAnnual;
-        const retainProb = !canAfford
+        const baseRetainProb = !canAfford
           ? 0.0
           : prof.faGrade === "A"
           ? 0.42
           : prof.faGrade === "B"
           ? 0.35
           : 0.25;
+        // 슈퍼스타(OVR 90+)·시장 평가를 원하는 선수는 원소속팀 잔류 확률이 낮다
+        const retainProb =
+          baseRetainProb * (faPlayer.getTrueOvr() >= 90 ? 0.6 : 1) * (faPlayer.wantsMarketTest ? 0.5 : 1);
 
         if (rng() < retainProb) {
           const years = prof.demandYears;
@@ -1272,6 +1283,8 @@
           formerTeam.budget = clamp((formerTeam.budget || 1200000) - split.DP, -3000000, 4000000);
           faPlayer.teamId = formerTeam.id;
           faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+          faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
+          faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
           faPlayer.salary = split.annualBaseSalaryManwon;
           faPlayer.contractYears = years;
           faPlayer.faYears = 0;
@@ -1609,6 +1622,8 @@
       const formerTeam = context.getTeam ? context.getTeam(faPlayer.formerTeamId) : null;
       faPlayer.teamId = userTeam.id;
       faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+      faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
+      faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
       faPlayer.salary = annualSalary;
       faPlayer.contractYears = offerY;
       faPlayer.faYears = 0;
@@ -1880,6 +1895,7 @@
 
     chosenCompPlayer.teamId = formerTeam.id;
     chosenCompPlayer.acquiredVia = { type: "FA_COMPENSATION", date: context.currentDate || null, fromTeamId: chosenCompPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    chosenCompPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     if (formerTeam.roster1G.length < 28) {
       chosenCompPlayer.status = "1GUN";
       formerTeam.roster1G.push(chosenCompPlayer);
@@ -2104,6 +2120,8 @@
 
         faPlayer.teamId = winTeam.id;
         faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+        faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
+        faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
         faPlayer.salary = winningBid.annualSalary;
         faPlayer.contractYears = winningBid.years;
         faPlayer.faYears = 0; // FA 계약 체결 시 FA 연차 리셋(4년 뒤 재취득 자격)
@@ -2184,6 +2202,8 @@
         if (fallbackTeam && options.autoSignLeftoverFAs !== false) {
           faPlayer.teamId = fallbackTeam.id;
           faPlayer.acquiredVia = { type: "FA", date: context.currentDate || null, fromTeamId: faPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+          faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
+          faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
           faPlayer.salary = Math.max(MIN_SALARY, round100(profile.prevSalary * 0.75));
           faPlayer.contractYears = 1;
           faPlayer.faYears = 0;
@@ -2606,6 +2626,7 @@
 
         candidate.teamId = team.id;
         candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+        candidate.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
         candidate.salary = contractSalary;
         candidate.contractYears = 1;
         candidate.faYears = 0;

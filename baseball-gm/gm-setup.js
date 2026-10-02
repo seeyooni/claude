@@ -860,6 +860,37 @@
    * - 타자: 컨택, 파워, 주력, 수비, 선구 (5대 스탯 + 세부 포지션)
    * - 스카우트 파견 수준(scoutProgress)에 따라 범주형(68~78) 또는 정확한 수치로 전환 표시
    */
+  /**
+   * 유저 구단이 보는 유망주 '추정 잠재력' (Fog of War)
+   * - 선수마다 고정된 인지 편향(±14)이 있고, 스카우트 품질이 좋을수록 편향과 오차 범위가 줄어든다.
+   *   오차 계수 = 1 - (스카우트 레벨-1)×0.15 - 조사도×0.30 - (단장 직관 시 0.45), 최소 0.05
+   *   (스카우트 본부 시설 증축·데이터 분석가 특성은 스카우트 레벨에 반영된다)
+   * - 추정 중심 = 실제 잠재력 + 편향 × 오차 계수, 표시 범위 = 중심 ± 8 × 오차 계수 (스카우트가 약하면 실제 값이 범위를 벗어나기도 한다)
+   */
+  function getPerceivedPotential(context, player, options = {}) {
+    if (!player) return null;
+    if (options.isOwnTeam) {
+      return { center: player.potential, low: player.potential, high: player.potential, errorFactor: 0, isExact: true };
+    }
+    if (!Number.isFinite(player.potScoutBias)) {
+      player.potScoutBias = Math.round((Math.random() * 2 - 1) * 14);
+    }
+    const scoutLevel = clamp(Number(context && context.scoutLevel) || 1, 1, 5);
+    const progress = clamp(Number(player.scoutProgress || (player.scoutError && player.scoutError.scoutProgress) || 20), 0, 100);
+    const viewed = Boolean(player.viewedByGM);
+    const errorFactor = clamp(1 - (scoutLevel - 1) * 0.15 - (progress / 100) * 0.3 - (viewed ? 0.45 : 0), 0.05, 1);
+    const center = Math.round(player.potential + player.potScoutBias * errorFactor);
+    const half = Math.max(0, Math.round(8 * errorFactor));
+    return {
+      center,
+      low: clamp(center - half, 40, 110),
+      high: clamp(center + half, 40, 110),
+      errorFactor: +errorFactor.toFixed(2),
+      isExact: errorFactor <= 0.1,
+      viewed
+    };
+  }
+
   function inspectProspectReport(context, playerId) {
     if (!context) return null;
     const gm = KBO_GM || (typeof globalThis !== "undefined" && globalThis.KBO_GM);
@@ -982,7 +1013,11 @@
       scoutProgress: progress,
       isExact,
       ovrDisplay: isExact ? `${player.getTrueOvr()} (${gradeFn(player.getTrueOvr())}) [정밀 분석 완료]` : `${se.ovrMin}~${se.ovrMax} (오차 ±${Math.round((se.ovrMax - se.ovrMin) / 2)})`,
-      potentialDisplay: isExact ? `${player.potential} (${gradeFn(player.potential)})` : `${clamp(player.potential - 7, 50, 108)}~${clamp(player.potential + 5, 55, 108)}`,
+      potentialDisplay: (() => {
+        const pp = getPerceivedPotential(context, player, { isOwnTeam });
+        if (pp.isExact) return `${pp.center} (${gradeFn(pp.center)})${pp.viewed ? " [단장 직관]" : ""}`;
+        return `${pp.low}~${pp.high} (추정 ${pp.center}${pp.viewed ? " · 단장 직관" : ""})`;
+      })(),
       stats,
       pitchDetails,
       lastGrowthNote: player.lastGrowthNote || null,
@@ -1127,6 +1162,7 @@
 
     candidate.teamId = team.id;
     candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    candidate.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     candidate.salary = shortTermFee;
     candidate.contractYears = 1;
     candidate.status = team.roster1G.length < 28 ? "1GUN" : "2GUN";
@@ -1310,12 +1346,14 @@
 
     myPlayer.teamId = targetTeam.id;
     myPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: myPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    myPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     myPlayer.status = targetTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (myPlayer.status === "1GUN") targetTeam.roster1G.push(myPlayer);
     else targetTeam.roster2G.push(myPlayer);
 
     targetPlayer.teamId = userTeam.id;
     targetPlayer.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: targetPlayer.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    targetPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     targetPlayer.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
     if (targetPlayer.status === "1GUN") userTeam.roster1G.push(targetPlayer);
     else userTeam.roster2G.push(targetPlayer);
@@ -2036,6 +2074,7 @@
       });
       mp.teamId = targetTeam.id;
       mp.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: mp.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+      mp.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
       mp.status = targetTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
       if (mp.status === "1GUN") targetTeam.roster1G.push(mp);
       else targetTeam.roster2G.push(mp);
@@ -2052,6 +2091,7 @@
       });
       tp.teamId = userTeam.id;
       tp.acquiredVia = { type: "TRADE", date: context.currentDate || null, fromTeamId: tp.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+      tp.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
       tp.status = userTeam.roster1G.length < 28 ? "1GUN" : "2GUN";
       if (tp.status === "1GUN") userTeam.roster1G.push(tp);
       else userTeam.roster2G.push(tp);
@@ -2232,6 +2272,7 @@
 
     candidate.teamId = team.id;
     candidate.acquiredVia = { type: "FOREIGN", date: context.currentDate || null, fromTeamId: candidate.formerTeamId || null }; // 시즌 회고 리포트용 영입 경로
+    candidate.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
     candidate.salary = contractCost;
     candidate.contractYears = 1;
     candidate.isAsianQuarter = true;
@@ -2441,7 +2482,8 @@
         if (context._regSeasonDayCounter >= 7) {
           context._regSeasonDayCounter = 0;
           if (gm && typeof gm.advanceOneWeek === "function") {
-            latestWeeklyReport = gm.advanceOneWeek(context, options);
+            // 일간 진행에서는 신인 드래프트를 주간 시뮬이 자동 진행하지 않는다 (9/23~9/30 단장 직접 지명 기간 보장)
+            latestWeeklyReport = gm.advanceOneWeek(context, { autoRunDraft: false, ...options });
             matchesSimulated += (latestWeeklyReport.kbo && latestWeeklyReport.kbo.matchResults.length) || 30;
             if (latestWeeklyReport.isRegularSeasonEnd || context.currentWeek > 24) {
               context.seasonPhase = "OFFSEASON_STOVE";
@@ -2555,6 +2597,52 @@
         }
       }
 
+      // 4-B8) 9월 30일: 신인 드래프트 마감 — 단장이 지명을 끝내지 않았으면 남은 라운드를 스카우트팀이 진행
+      if (month === 9 && dayOfMonth === 30 && gm && gm.Draft) {
+        if (context._lastDraftCompletedYear !== context.currentYear) {
+          if (!context.draftState || context.draftState.year !== context.currentYear) gm.Draft.initDraftSession(context);
+          while (context.draftState.completedRounds.length < 10 && (context.draftPool || []).length > 0) {
+            gm.Draft.runDraftRound(context, context.draftState.completedRounds.length + 1, null);
+          }
+          context._lastDraftCompletedYear = context.currentYear;
+          dailyEvents.push({
+            date: context.currentDate,
+            type: "ROOKIE_DRAFT_CLOSED",
+            message: `[9월 30일 신인 드래프트 마감] 남은 지명을 스카우트팀이 마무리했습니다.`
+          });
+        }
+        // AI 구단 신인 입단에 따른 로스터 정리 (연 1회)
+        if (context._draftTrimYear !== context.currentYear) {
+          context._draftTrimYear = context.currentYear;
+          context.kboTeams.forEach((t) => {
+            if (t.id !== context.userTeamId) autoTrimRosterForDraftees(context, t.id);
+          });
+        }
+      }
+
+      // 4-B9) 청소년 국가대표 행사 직관 가능 기간 개시 알림 (행사일 10일 전)
+      if (gm && gm.Draft && typeof gm.Draft.getYouthViewingEvents === "function") {
+        gm.Draft.getYouthViewingEvents(context).forEach((ev) => {
+          const daysToEvent = Math.round((Date.parse(ev.date) - Date.parse(context.currentDate)) / 86400000);
+          if (daysToEvent === (gm.Draft.YOUTH_VIEWING_WINDOW_DAYS || 10) && ev.status === "OPEN") {
+            dailyEvents.push({
+              date: context.currentDate,
+              type: "YOUTH_VIEWING_OPEN",
+              message: `[직관 가능] ${ev.name} (${ev.date}) — 신인 드래프트장에서 단장 직관을 신청할 수 있습니다. (올해 남은 직관 ${ev.remaining}회)`
+            });
+          }
+        });
+      }
+
+      // 4-C0) 11월 20일: AI 구단 MLB 포스팅 결정 (하위권일수록 승인)
+      if (month === 11 && dayOfMonth === 20 && gm && gm.Extensions && typeof gm.Extensions.runAIPostingDecisions === "function") {
+        gm.Extensions.runAIPostingDecisions(context).forEach((r) => {
+          if (r.decision === "APPROVE") {
+            dailyEvents.push({ date: context.currentDate, type: "AI_MLB_POSTING", message: r.summary });
+          }
+        });
+      }
+
       // 4-C1) 11월 4일 (포스트시즌 마감 다음 날): 시즌 회고 리포트 생성 → 다음 시즌 기준 로스터 스냅샷
       if (month === 11 && dayOfMonth === 4 && gm && gm.Retro && typeof gm.Retro.buildSeasonRetrospective === "function") {
         const already = Array.isArray(context.seasonRetros) && context.seasonRetros.some((r) => r.year === context.currentYear);
@@ -2579,6 +2667,11 @@
         const off = gm.Offseason;
         const stoveEvent = (type, message) => dailyEvents.push({ date: context.currentDate, type, message });
         if (month === 12 && dayOfMonth === 1) {
+          // AI 구단 비FA 다년계약 (FA 공시 직전 핵심 예비 FA 선점)
+          if (gm.NonFA && typeof gm.NonFA.runAIExtensions === "function" && context._aiExtensionYear !== context.currentYear) {
+            context._aiExtensionYear = context.currentYear;
+            gm.NonFA.runAIExtensions(context).forEach((summary) => stoveEvent("AI_NONFA_EXTENSION", summary));
+          }
           if (!off.isStoveStepDone(context, "salary")) {
             off.processSalaryRenewals(context, { userPolicy: "FAIR" });
             stoveEvent("STOVE_SALARY_AUTO", "[12월 1일 연봉 재계약 마감] 미처리 연봉 계약을 '적정 협상' 기준으로 일괄 체결했습니다.");
@@ -3133,6 +3226,8 @@
           const entryAge = p.origin === "UNIV" ? 23 : 19;
           p.kboSeasons = Math.max(0, (p.age || 20) - entryAge);
         }
+        // 시작 로스터는 입단 후 줄곧 현 소속 구단에서 뛴 것으로 본다 (프랜차이즈 예외 판정용)
+        if (!Number.isFinite(Number(p.teamSinceYear))) p.teamSinceYear = (context.currentYear || 2025) - p.kboSeasons;
       });
     });
 
@@ -4080,6 +4175,7 @@
     getSeasonPhaseByDate,
     dispatchAmateurScouts,
     applyDailyScoutProgress,
+    getPerceivedPotential,
     inspectProspectReport,
     movePlayerEntryWithForeignRule,
     releaseForeignPlayer,

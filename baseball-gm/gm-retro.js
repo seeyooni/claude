@@ -131,9 +131,11 @@
       teamPlayers(t).forEach((p) => {
         const d = p.draftInfo;
         if (!d || d.teamId !== userTeamId || typeof d.round !== "number") return;
-        if (!classes[d.year]) classes[d.year] = { year: d.year, picks: 0, withUs: 0, war: 0, best: null };
+        if (!classes[d.year]) classes[d.year] = { year: d.year, picks: 0, withUs: 0, war: 0, directWar: 0, delegatedWar: 0, best: null };
         const c = classes[d.year];
         const war = warSince(p, d.year, year, () => true);
+        if (d.method === "DELEGATED") c.delegatedWar = r1(c.delegatedWar + war);
+        else c.directWar = r1(c.directWar + war);
         c.picks += 1;
         if (t.id === userTeamId) c.withUs += 1;
         c.war = r1(c.war + war);
