@@ -1577,7 +1577,7 @@
                 ${
                   canPickNow
                     ? `<button type="button" class="btn-sm primary" data-draft-pick="${r.playerId}">${nextRound}라운드 직접 지명</button>`
-                    : `<button type="button" class="btn-sm ghost" disabled title="매년 9월 23일부터 직접 지명이 가능합니다">9월 23일 직접 지명 오픈</button>`
+                    : `<span class="tiny muted">9월 23일부터 지명 가능</span>`
                 }
                 <button type="button" class="btn-sm ghost" data-player-modal="${r.playerId}" data-pool="draft">스카우트 리포트</button>
               </div>
@@ -1604,23 +1604,23 @@
                 : `고교(${p.gradeYear || 3}학년·${p.age}세)`;
           const progPct = Math.round(p.scoutProgress || 25);
           const ovrText = se.isExact || se.ovrMin === se.ovrMax ? `${p.getTrueOvr()} (정밀완료)` : `${se.ovrMin}~${se.ovrMax} (조사 ${progPct}%)`;
+          // 행을 누르면 스카우트 리포트, 버튼은 지금 할 수 있는 동작 하나만 (지명 기간 밖에는 버튼 없이 안내 글자)
           return `
-            <tr>
+            <tr class="player-row" data-player-modal="${p.id}" data-pool="draft" title="눌러서 스카우트 리포트 보기">
               <td class="tnum">${idx + 1}</td>
               <td><span class="pos-code pos-${p.type}">${esc(p.pos)}</span></td>
               <td><strong>${esc(p.name)}</strong> <span class="tiny muted">(${esc(fmtHand(p))})</span></td>
               <td>${grpText}</td>
               <td class="tnum ${se.isExact || se.ovrMin === se.ovrMax ? "" : "est-val"}">${ovrText}</td>
               <td>${esc(proj)}</td>
-              <td>
+              <td class="action-cell">
                 ${
                   !isDone
                     ? canPickNow
-                      ? `<button type="button" class="btn-xs primary" data-draft-pick="${p.id}">${nextRound}R 직접지명</button>`
-                      : `<button type="button" class="btn-xs ghost" disabled title="9월 23일부터 직접 지명 가능">9/23 지명</button>`
-                    : `<button type="button" class="btn-xs" data-sign-undrafted="${p.id}">육성영입</button>`
+                      ? `<button type="button" class="btn-xs primary" data-draft-pick="${p.id}">${nextRound}R 지명</button>`
+                      : `<span class="tiny muted">9/23부터</span>`
+                    : `<button type="button" class="btn-xs" data-sign-undrafted="${p.id}">육성 영입</button>`
                 }
-                <button type="button" class="btn-xs ghost" data-player-modal="${p.id}" data-pool="draft">리포트</button>
               </td>
             </tr>
           `;
@@ -1727,8 +1727,30 @@
     }
   }
 
+  // FA 기간(원소속 우선협상 ~ 1월 15일 시장 마감)인지
+  function faWindowOpenNow() {
+    const ctx = STATE.ctx;
+    if (!ctx || !GM.FrontOffice || typeof GM.FrontOffice.getStovePhases !== "function") return true;
+    const w = GM.FrontOffice.getStovePhases(ctx).filter((ph) => ph.key === "faPriority" || ph.key === "faOpen");
+    return !w.length || w.some((ph) => ph.status === "OPEN");
+  }
+
   function renderFASubPanel() {
     const ctx = STATE.ctx;
+    const faOpenNow = faWindowOpenNow();
+    // 공시는 스토브리그 연봉 재계약 기간(11/5~)부터 직접 할 수 있고, 시장 마감은 FA 기간 안에서만
+    const stovePh = GM.FrontOffice && typeof GM.FrontOffice.getStovePhases === "function" ? GM.FrontOffice.getStovePhases(ctx) : [];
+    const salaryOpen = stovePh.some((ph) => ph.key === "salary" && ph.status === "OPEN");
+    [
+      ["btnDeclareFA", faOpenNow || salaryOpen, "FA 공시는 스토브리그(11월 5일~12월 1일)에 할 수 있습니다."],
+      ["btnRunFAMarket", faOpenNow, "FA 시장은 공시 후 1월 15일까지 열립니다."]
+    ].forEach(([id, ok, why]) => {
+      const b = $(id);
+      if (b) {
+        b.disabled = !ok;
+        b.title = ok ? "" : why;
+      }
+    });
     // 원소속 우선협상 기간에는 타 구단 FA를 공개하지 않는다 (기간 종료 시 자동 공개)
     const priorityHidden = (ctx.faMarketPhase || "PRIORITY") === "PRIORITY";
     const rawFaList = (ctx.faPool || []).filter((p) => !priorityHidden || p.formerTeamId === ctx.userTeamId);
@@ -1814,7 +1836,13 @@
           { key: "DH", label: `지명타자 DH (${pc.DH})` }
         ];
 
-        ctrlBar.innerHTML = `
+        // 지금이 FA 기간인지: 스토브리그 단계 표시와 같은 기준 (기간 밖이면 지난 겨울 단계 문구를 보여주지 않는다)
+        const faPhases = GM.FrontOffice && typeof GM.FrontOffice.getStovePhases === "function" ? GM.FrontOffice.getStovePhases(ctx) : [];
+        const faWindow = faPhases.filter((ph) => ph.key === "faPriority" || ph.key === "faOpen");
+        const faWindowOpen = faWindowOpenNow();
+        const nextFaStart = faWindow.find((ph) => ph.status === "UPCOMING");
+        const md = (d) => `${Number(String(d).slice(5, 7))}월 ${Number(String(d).slice(8, 10))}일`;
+        ctrlBar.innerHTML = (faWindowOpen ? `
           <!-- [요청 3] FA 협상 단계 (원소속 우선협상 기간 ↔ 전 구단 완전 개방 기간) -->
           <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid ${isPriority ? "var(--warn)" : "var(--good)"};display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
             <div>
@@ -1834,8 +1862,14 @@
                   : `<span class="scout-rank-tag tnum">자유협상 진행 중 · 1월 15일 FA 시장 마감</span>`
               }
             </div>
-          </div>
-
+          </div>` : `
+          <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--border-strong)">
+            <strong>FA 시장 닫힘</strong>
+            <span class="sep">·</span>
+            <span>${nextFaStart ? `다음 FA 공시 ${md(nextFaStart.start)} (D-${nextFaStart.dDay})` : "다음 겨울 FA 공시를 기다리는 중"}</span>
+            <span class="sep">·</span>
+            <span class="tiny muted">지난 겨울 타결 ${(ctx.faSignedHistory || []).length}건. 아래 목록은 남아 있는 미계약 FA입니다.</span>
+          </div>`) + `
           <!-- [요청 4] FA 리스트 A-B-C 등급별 & 포지션별 세분화 필터 바 -->
           <div class="report-box" style="padding:10px 12px">
             <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
@@ -2004,7 +2038,7 @@
       } else {
         const directHtml = directHist.length
           ? `<div style="margin-bottom:8px">
-              <strong>실시간 직접 협상 &amp; 우선협상 타결 내역 (${directHist.length}건):</strong>
+              <strong>${faWindowOpenNow() ? "이번 겨울" : "지난 겨울"} 직접 협상 · 우선협상 타결 내역 (${directHist.length}건):</strong>
               ${directHist
                 .slice(-8)
                 .reverse()
@@ -2946,7 +2980,7 @@
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">2. KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
-              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 외국인/FA/신인(1~2년차)/군보류 자동 보호 외 핵심 35인 보호 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
+              <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 자동 보호(외국인 · FA 자격 · 입단 1~3년차 · 군보류 이력 4년차 · 상무 복무 중) 외 35인 보호. 비FA 다년계약 선수는 자동 보호가 아니므로 명단에 넣어야 합니다 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
             </div>
             <button type="button" class="btn-sm primary" data-run-biennial-draft="1" ${bdGate.allowed && !thisYearBd ? "" : "disabled"}>
               ${
@@ -5729,7 +5763,26 @@
     const btnStartNewSeason = $("btnStartNewSeason");
     if (btnStartNewSeason) {
       btnStartNewSeason.addEventListener("click", async () => {
-        const res = GM.SpringCamp.finalizeOffseasonAndStartSeason(STATE.ctx);
+        // 개막일(3월 22일)까지 일간 엔진으로 진행한다. 해 바뀜(1월 1일 시즌 이관)과 스토브리그 마감 자동 처리는
+        // 일간 엔진이 맡으므로, 여기서 시즌 이관 함수를 다시 부르면 1월~3월에 한 시즌을 통째로 건너뛰게 된다.
+        const ctx = STATE.ctx;
+        const month = Number(String(ctx.currentDate).slice(5, 7));
+        const day = Number(String(ctx.currentDate).slice(8, 10));
+        const inSeason = (month > 3 && month < 10) || (month === 3 && day >= 22);
+        if (inSeason) {
+          showToast("이미 정규시즌 중입니다. 개막일까지 진행할 필요가 없습니다.", "info");
+          return;
+        }
+        const targetYear = month >= 10 ? ctx.currentYear + 1 : ctx.currentYear;
+        const target = `${targetYear}-03-22`;
+        if (!window.confirm(`${target.replace(/-/g, ".")} 개막일까지 날짜를 진행합니다. 그 사이 스토브리그 마감(연봉·FA·외국인)은 자동 처리됩니다. 계속할까요?`)) return;
+        let guard = 0;
+        while (String(ctx.currentDate) < target && guard++ < 40) {
+          const left = Math.round((Date.parse(target) - Date.parse(ctx.currentDate)) / 86400000);
+          const r = GM.Setup.advanceDays(ctx, Math.max(1, Math.min(30, left)));
+          if (r && r.blocked) break;
+        }
+        const res = { newYear: ctx.currentYear };
         STATE.lastWeeklyReport = null;
         STATE.lastDraftReport = null;
         STATE.lastSalaryReport = null;
@@ -5738,7 +5791,7 @@
         STATE.lastCampReport = null;
         await GM.Storage.saveGame("auto_save", STATE.ctx, { label: `${res.newYear}시즌 개막 자동저장` });
         STATE.activeTab = "pennant";
-        showToast(`${res.newYear}시즌 페넌트레이스가 개막했습니다! (전 선수 나이+1 & 에이징 커브 반영)`, "good");
+        showToast(`${res.newYear}시즌 개막일입니다. 정규시즌 일정을 진행하세요.`, "good");
         renderAll();
       });
     }

@@ -438,20 +438,23 @@
     const curYear = (context && context.currentYear) || 2025;
     const allPlayers = team.getAllPlayers();
 
-    // 자동 보호 대상: 외국인/아시아쿼터, 당해/직전 입단 신인(1~2년차), FA 자격 선수, 군보류, 비FA 다년계약
+    // 자동 보호 대상: 외국인/아시아쿼터, 입단 1~3년차(+군보류 이력 4년차), FA 자격 선수, 상무 복무 중
     const autoExemptIds = new Set();
     const autoProtectedPlayers = [];
     const candidatesFor35 = [];
 
     allPlayers.forEach((p) => {
       const isForeign = p.nationality && p.nationality !== "KOR";
-      const isRecentRookie = p.draftInfo && Number(p.draftInfo.year) >= curYear - 1;
+      // 입단 연차: 신인 드래프트 지명 연도 기준(9월 지명 → 다음 시즌 1년차), 지명 기록이 없으면 KBO 시즌 수
+      const entryYears = p.draftInfo && Number.isFinite(Number(p.draftInfo.year)) ? curYear - Number(p.draftInfo.year) : Number(p.kboSeasons || 99);
+      // 실제 KBO 규정(2025 개정): 입단 1~3년차 자동 보호 + 입단 4년차 중 군보류 이력 선수
+      const isRecentRookie = entryYears <= 3 || (entryYears === 4 && Boolean(p.enlistedDate));
       const isFaEligible = (p.faYears || 0) >= 8 || p.status === "FA_POOL";
+      // 게임 단순화: 상무 복무 중인 선수는 소속 이동 처리를 피하려고 자동 보호 (실제 규정은 4년차 이상 군보류 선수도 지명 대상)
       const isMilitary = p.status === "MILITARY";
-      // 비FA 다년계약 선수: 구단이 장기 보장한 선수라 2차 드래프트에서 자동 보호 (게임 규칙)
-      const isMultiYear = Boolean(p.nonFAContract && p.nonFAContract.active);
+      // 비FA 다년계약 선수는 자동 보호가 아니다 → 35인 명단 한 자리를 차지한다 (실제 규정)
 
-      if (isForeign || isRecentRookie || isFaEligible || isMilitary || isMultiYear) {
+      if (isForeign || isRecentRookie || isFaEligible || isMilitary) {
         autoExemptIds.add(p.id);
         autoProtectedPlayers.push(p);
       } else {

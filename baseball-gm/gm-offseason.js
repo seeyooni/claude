@@ -2593,7 +2593,12 @@
         if (shouldKeep) {
           const oldSal = fp.salary || 60000;
           const raiseRate = clamp(1.08 + Math.max(0, war - 2.0) * 0.06, 1.05, 1.35);
-          fp.salary = isUserTeam && userOfferedSal ? userOfferedSal : round100(oldSal * raiseRate);
+          // 유저가 직접 제시했거나 협상으로 합의한 금액이 있을 때만 그 금액, 아니면 AI 구단과 같은 성과 연동 인상률
+          // (예전에는 방치 시에도 시장 권장액(매년 약 +45%)으로 자동 재계약되어 외국인 연봉이 복리로 불어났다)
+          const userChoseSalary =
+            isUserTeam &&
+            ((userForeignAction && userForeignAction.salaryOffers && userForeignAction.salaryOffers[fp.id] != null) || fp.agreedRenewalSalary);
+          fp.salary = userChoseSalary ? userOfferedSal : round100(oldSal * raiseRate);
           fp.contractYears = 1;
           fp.renewalNegotiationStatus = "AGREED";
           team.budget = clamp((team.budget || 1200000) - Math.round(fp.salary * 0.15), -3000000, 4000000); // 재계약 인센티브/계약금 차감
