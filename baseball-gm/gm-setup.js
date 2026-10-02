@@ -15,6 +15,7 @@
   const setupModule = factory(root.KBO_GM || (typeof globalThis !== "undefined" && globalThis.KBO_GM));
   if (typeof globalThis !== "undefined") {
     globalThis.KBO_GM = Object.assign(globalThis.KBO_GM || {}, {
+      KBO_TEAM_2024_META: setupModule.KBO_TEAM_2024_META,
       Setup: setupModule,
       Rules: setupModule,
       TestRunner: setupModule.TestRunner,
@@ -23,6 +24,7 @@
   }
   if (typeof window !== "undefined") {
     window.KBO_GM = Object.assign(window.KBO_GM || {}, {
+      KBO_TEAM_2024_META: setupModule.KBO_TEAM_2024_META,
       Setup: setupModule,
       Rules: setupModule,
       TestRunner: setupModule.TestRunner,
@@ -3896,6 +3898,32 @@
     }
   }
 
+  function initGame(userTeamId = "KIA") {
+    const ctx = createGameContextSync({
+      userTeamId: resolveTeamId(userTeamId),
+      gmName: "김단장",
+      gmTrait: "DATA_ANALYST",
+      autoSave: false
+    });
+    const gm = KBO_GM || (typeof globalThis !== "undefined" && globalThis.KBO_GM) || null;
+    if (gm) {
+      gm.context = ctx;
+      if (gm.Offseason && typeof gm.Offseason.declareEligibleFAPlayers === "function" && (!Array.isArray(ctx.faPool) || ctx.faPool.length === 0)) {
+        gm.Offseason.declareEligibleFAPlayers(ctx);
+      }
+      ctx.faMarket = (ctx.faPool || []).map((p) => {
+        const prof = gm.Offseason && typeof gm.Offseason.evaluateFAPlayerMarketProfile === "function"
+          ? gm.Offseason.evaluateFAPlayerMarketProfile(p, ctx)
+          : null;
+        const grade = (prof && prof.faGrade) || (gm.FA && gm.FA.determineGrade ? gm.FA.determineGrade(p) : "C");
+        const val = gm.FA && gm.FA.calculateTargetValuation ? gm.FA.calculateTargetValuation(p, grade) : { grade, years: 2, totalValuation: 40000, annualAverage: 20000 };
+        const bd = gm.FA && gm.FA.breakdownContract ? gm.FA.breakdownContract(val, grade) : { years: val.years, total: val.totalValuation, downPayment: 10000, annualBaseSalary: 15000 };
+        return { player: p, grade, val, bd };
+      });
+    }
+    return ctx;
+  }
+
   const TestRunner = {
     run5YearSimulation,
     runSelfDiagnosticTest
@@ -3903,6 +3931,7 @@
 
   return {
     KBO_TEAM_2024_META,
+    initGame,
     KOREAN_INDEPENDENT_CLUBS,
     GM_TRAITS,
     STANDARD_SLOTS,

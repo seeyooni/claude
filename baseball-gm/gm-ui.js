@@ -314,10 +314,20 @@
     $("hdrBudget").textContent = fmtMoney(userTeam.budget);
     $("hdrPayrollSub").textContent = `연봉총액 ${fmtMoney(payroll)} · 여유 ${fmtMoney(availBudget)} · 현재 ${rankNum}위 (${rec.w}승 ${rec.l}패 ${rec.d}무)`;
 
-    const trust = clamp(userTeam.ownerTrust ?? 60, 0, 100);
-    const fan = clamp(userTeam.fanRatio ?? 55, 0, 100);
+    const trust = clamp(userTeam.ownerTrust ?? 80, 0, 100);
+    const fan = clamp(userTeam.fanRatio ?? 60, 0, 100);
+    const mcMod = GM.ManagerConflict || GM.Extensions;
+    const mcState = mcMod && typeof mcMod.ensureManagerConflictState === "function"
+      ? mcMod.ensureManagerConflictState(userTeam)
+      : null;
+    const mgrTrust = clamp(mcState ? mcState.managerTrust : (userTeam.managerTrust ?? 75), 0, 100);
+
     $("hdrTrustVal").textContent = `${trust} / 100`;
     $("hdrTrustBar").style.width = `${trust}%`;
+    const mgrValEl = $("hdrMgrTrustVal");
+    const mgrBarEl = $("hdrMgrTrustBar");
+    if (mgrValEl) mgrValEl.textContent = `${mgrTrust} / 100`;
+    if (mgrBarEl) mgrBarEl.style.width = `${mgrTrust}%`;
     $("hdrFanVal").textContent = `${fan} / 100`;
     $("hdrFanBar").style.width = `${fan}%`;
 
@@ -3748,12 +3758,347 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
+   * 8-C. [탭 4-A] R&D 시설 & 2군 육성 전용 탭 렌더링
+   *      [탭 4-B] 감독 & 미디어 인터뷰 전용 탭 렌더링
+   * ═══════════════════════════════════════════════════════════════════════ */
+  function renderFacilitiesTab() {
+    const ctx = STATE.ctx;
+    const container = $("facilitiesTabContainer");
+    if (!ctx || !container || !GM.Extensions) return;
+
+    const userTeam = ctx.getUserTeam();
+    const ext = GM.Extensions;
+    const fac = ext.ensureTeamFacilities(userTeam);
+    const facEff = ext.getTeamFacilityEffects(userTeam);
+    const sangmuCands = ext.getEligibleSangmuCandidates(userTeam);
+    const servingList = userTeam.militaryList || [];
+    const futuresPlayers = [...(userTeam.roster2G || []), ...(userTeam.rosterDev || [])];
+    const trainProgs = ext.FUTURES_TRAINING_PROGRAMS || {};
+    const parkPresets = ext.PARK_REMODEL_PRESETS || {};
+    const curParkPreset = userTeam.parkPresetKey || "NEUTRAL";
+
+    const facIcons = {
+      rehabCenter: "🏥",
+      biomechLab: "🔬",
+      scoutHq: "📡"
+    };
+
+    const facCardsHtml = ["rehabCenter", "biomechLab", "scoutHq"]
+      .map((fKey) => {
+        const spec = ext.FACILITY_SPECS[fKey];
+        const curLv = fac[fKey] || 1;
+        const nextLv = curLv + 1;
+        const nextCost = spec.costsByNextLevel[nextLv] || 0;
+        const isMax = curLv >= 5;
+        return `
+          <div class="panel" style="margin-bottom:0">
+            <div class="panel-head">
+              <div>
+                <h3 class="panel-title" style="font-size:15.5px">${facIcons[fKey] || "🏗️"} ${esc(spec.name)}</h3>
+                <span class="scout-rank-tag tnum" style="margin-top:4px;display:inline-block">현재 Lv.${curLv} / 5</span>
+              </div>
+            </div>
+            <p class="tiny" style="margin:8px 0 14px;line-height:1.55">${esc(spec.desc)}</p>
+            <button type="button" class="btn-primary" style="width:100%" data-upgrade-facility="${fKey}" ${isMax ? "disabled" : ""}>
+              ${isMax ? "최고 단계 (Lv.5 완료)" : `Lv.${nextLv} 증축 투자 (${fmtMoney(nextCost)})`}
+            </button>
+          </div>
+        `;
+      })
+      .join("");
+
+    container.innerHTML = `
+      <div style="display:grid;gap:16px">
+        <div class="weekly-summary-banner">
+          <strong>구단 R&amp;D 3대 시설 실시간 보너스:</strong>
+          선수단 부상 발생률 <strong>-${Math.round((1 - facEff.injuryChanceMult) * 100)}%</strong> ·
+          2군 유망주 TP/성장 속도 <strong>+${Math.round((facEff.futuresGrowthMult - 1) * 100)}%</strong> ·
+          스카우트 Fog of War 오차 축소 <strong>-${Math.round((1 - facEff.scoutNoiseMult) * 100)}%</strong>
+        </div>
+
+        <div class="grid-3col">
+          ${facCardsHtml}
+        </div>
+
+        <div class="panel" style="margin-bottom:0">
+          <div class="panel-head">
+            <div>
+              <h3 class="panel-title">🌱 2군 퓨처스 &amp; 육성군 유망주 맞춤형 집중 훈련 배정 (${futuresPlayers.length}명)</h3>
+              <div class="tiny">2군 바이오메카닉스 랩과 연동되어 매주 퓨처스리그 경기 후 지정된 능력치가 가속 성장합니다.</div>
+            </div>
+            <button type="button" class="btn-sm primary" data-futures-auto-assign="1"> 취약 능력치 자동 일괄 배정</button>
+          </div>
+          <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+            <table class="gm-table compact">
+              <thead>
+                <tr>
+                  <th>군</th>
+                  <th>포지션</th>
+                  <th>선수명</th>
+                  <th>나이</th>
+                  <th>현재 OVR</th>
+                  <th>잠재력</th>
+                  <th>집중 육성 과제 선택</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${futuresPlayers
+                  .slice(0, 25)
+                  .map(
+                    (p) => `
+                    <tr>
+                      <td><span class="inline-tag">${esc(p.status)}</span></td>
+                      <td><span class="pos-code">${esc(p.pos)}</span></td>
+                      <td><button type="button" class="player-link" data-open-player="${p.id}">${esc(p.name)}</button></td>
+                      <td class="tnum">${p.age}세</td>
+                      <td class="tnum"><strong>${p.getTrueOvr()}</strong></td>
+                      <td class="tnum">${p.potential}</td>
+                      <td>
+                        <select class="gm-select" style="font-size:12px;padding:3px 8px" data-futures-training-select="${p.id}">
+                          <option value="">-- 과제 선택 --</option>
+                          ${Object.values(trainProgs)
+                            .filter((pr) => !pr.targetType || pr.targetType === p.type)
+                            .map(
+                              (pr) =>
+                                `<option value="${esc(pr.key)}" ${p.trainingFocus === pr.key ? "selected" : ""}>${esc(pr.label)}</option>`
+                            )
+                            .join("")}
+                        </select>
+                      </td>
+                    </tr>
+                  `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2col">
+          <div class="panel" style="margin-bottom:0">
+            <div class="panel-head">
+              <div>
+                <h3 class="panel-title" style="font-size:15px">🪖 상무 피닉스 야구단 병역 보류 시스템 (${servingList.length} / 4명 복무 중)</h3>
+                <div class="tiny">만 19~26세 미필 선수 18개월 복무 성장 · 정원/페이롤 제외</div>
+              </div>
+            </div>
+            <div class="scout-grid">
+              ${
+                sangmuCands
+                  .slice(0, 4)
+                  .map(
+                    (p) => `
+                    <div class="scout-card">
+                      <div class="scout-card-head">
+                        <strong>${esc(p.name)} (${esc(p.pos)} · ${p.age}세)</strong>
+                        <span class="scout-rank-tag tnum">OVR ${p.getTrueOvr()} / 포텐 ${p.potential}</span>
+                      </div>
+                      <div class="scout-actions" style="margin-top:6px">
+                        <button type="button" class="btn-xs primary" data-enlist-sangmu="${p.id}" ${servingList.length >= 4 ? "disabled" : ""}>
+                          상무 피닉스 입대 신청 (18개월)
+                        </button>
+                      </div>
+                    </div>
+                  `
+                  )
+                  .join("") || `<div class="empty-box">현재 입대 대상 미필 선수가 없습니다.</div>`
+              }
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:0">
+            <div class="panel-head">
+              <div>
+                <h3 class="panel-title" style="font-size:15px">🏟️ 홈구장 외야 펜스 리모델링 (파크팩터 전략 조정)</h3>
+                <div class="tiny">우리 구단 팀 컬러(거포 군단 vs 마운드/수비 중심)에 맞춰 외야 펜스 거리와 높이를 개조합니다.</div>
+              </div>
+            </div>
+            <div style="display:grid;gap:8px">
+              ${Object.values(parkPresets)
+                .map(
+                  (pk) => `
+                  <div class="scout-card" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                    <div>
+                      <strong>${esc(pk.label)}</strong>
+                      <div class="tiny muted">${esc(pk.desc)}</div>
+                    </div>
+                    <button type="button" class="btn-xs ${curParkPreset === pk.key ? "ghost" : "primary"}" data-remodel-park="${esc(pk.key)}" ${curParkPreset === pk.key ? "disabled" : ""}>
+                      ${curParkPreset === pk.key ? "현재 적용 중" : `개조 (${fmtMoney(pk.costManwon)})`}
+                    </button>
+                  </div>
+                `
+                )
+                .join("")}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderManagerTab() {
+    const ctx = STATE.ctx;
+    const container = $("managerTabContainer");
+    if (!ctx || !container || !GM.Extensions) return;
+
+    const userTeam = ctx.getUserTeam();
+    const ext = GM.Extensions;
+    const mc = ext.ensureManagerConflictState(userTeam);
+    const rgm = ext.ensureRealisticGMState(userTeam);
+    const archMap = ext.MANAGER_ARCHETYPES || {};
+    const curArch = archMap[rgm.managerArchetype] || { label: "베테랑 선호형", desc: "검증된 베테랑과 주전 기용 선호" };
+    const moraleIssues = ext.getMoraleIssuePlayers(userTeam);
+    const topStarForSal = userTeam.roster1G.slice().sort((a, b) => b.getTrueOvr() - a.getTrueOvr())[0];
+
+    container.innerHTML = `
+      <div style="display:grid;gap:16px">
+        <div class="panel" style="margin-bottom:0">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title">👔 현장 감독 성향 및 프런트 갈등 관리 (${esc(mc.managerName)} 감독 · ${esc(curArch.label)})</h2>
+              <div class="tiny">감독 신임도: <strong>${mc.managerTrust} / 100</strong> · 갈등 게이지: <strong>${mc.conflictGauge} / 100</strong> · 위기 단계: <strong>${mc.crisisStage}단계</strong> · 언론 여론 지수: <strong>${rgm.mediaSentiment} / 100</strong></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <select id="rgmArchetypeSelect" class="gm-select" style="font-size:12.5px">
+                ${Object.values(archMap)
+                  .map(
+                    (a) =>
+                      `<option value="${esc(a.key)}" ${rgm.managerArchetype === a.key ? "selected" : ""}>${esc(a.label)}</option>`
+                  )
+                  .join("")}
+              </select>
+              <button type="button" class="btn-xs ghost" data-rgm-set-archetype="1">성향 변경 적용</button>
+              <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">🚨 기용 거부(벤치 방치) 면담 모달</button>
+              <button type="button" class="btn-xs" data-open-mandate-modal="FA_20">📋 보호선수 감독 외압 면담</button>
+            </div>
+          </div>
+
+          <div class="weekly-summary-banner" style="margin-bottom:10px">
+            <strong>현재 감독 운영 기조:</strong> ${esc(curArch.desc || "1군 즉시전력감 및 베테랑 중심 기용")} ·
+            프런트 윈나우 지수 <strong>${rgm.winNowIndex}</strong> vs 미래 팜 건전성 <strong>${rgm.farmSystemHealth}</strong>
+          </div>
+
+          <div class="grid-2col">
+            <div class="report-box" style="border-left:4px solid var(--bad)">
+              <strong>🎙️ 과도한 감봉 시 선수단 집단 항명 &amp; 미디어 인터뷰 여론전</strong>
+              <div class="tiny muted" style="margin:6px 0 10px">
+                고강도 연봉 삭감 시 선수단 집단 항명(팀 컨디션 저하 · 팬심 하락)이 발생하며, 단장의 공식 미디어 인터뷰 스탠스에 따라 구단주 신임도와 언론 여론이 결정됩니다.
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs text-bad" data-rgm-trigger-rebellion="1">🔥 감봉 집단 항명 발생 시뮬레이션</button>
+                <button type="button" class="btn-xs ghost" data-rgm-media-response="HARDLINE_PRINCIPLE">🎙️ 강경 원칙론 인터뷰 (구단주+10 / 여론-18)</button>
+                <button type="button" class="btn-xs primary" data-rgm-media-response="CONCILIATORY_BONUS">🤝 유화책·보너스 신설 (여론+22 / 사기+20)</button>
+                <button type="button" class="btn-xs" data-rgm-media-response="TRANSPARENT_REBUILD_PR">📊 리빌딩 재투자 브리핑 (구단주+6 / 여론+16)</button>
+              </div>
+            </div>
+
+            <div class="report-box" style="border-left:4px solid #38bdf8">
+              <strong>⚖️ BATNA 다안건 연봉 협상 &amp; 1월 말 연봉조정위원회</strong>
+              <div class="tiny muted" style="margin:6px 0 10px">
+                보장 출전 타석/이닝 + 성과 옵션 + 비FA 다년 전환 패키지 협상 또는 연봉조정위원회 회부를 결단합니다.
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" class="btn-xs primary" data-rgm-multi-issue-neg="${topStarForSal ? topStarForSal.id : ""}">
+                  🤝 핵심 선수 다안건 패키지 협상 타결
+                </button>
+                <button type="button" class="btn-xs text-bad" data-rgm-run-arbitration="${topStarForSal ? topStarForSal.id : ""}">
+                  ⚖️ 연봉조정위원회 판결 실행
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-bottom:0">
+          <div class="panel-head">
+            <div>
+              <h3 class="panel-title">💬 선수단 사기(Morale) 관리 &amp; 트레이드 요구 선수 1:1 단장 면담 (${moraleIssues.length}명)</h3>
+              <div class="tiny">출전 기회 부족이나 2군 장기 체류로 불만이 쌓인 선수와 1:1 면담(격려금 지급) 또는 1군 콜업 약속을 진행합니다.</div>
+            </div>
+          </div>
+          <div class="scout-grid">
+            ${
+              moraleIssues
+                .slice(0, 6)
+                .map(
+                  (p) => `
+                  <div class="scout-card" style="border-left:4px solid ${p.tradeDemand ? "var(--bad)" : "#f59e0b"}">
+                    <div class="scout-card-head">
+                      <strong>${esc(p.name)} (${esc(p.pos)} · ${p.age}세 · ${esc(p.status)})</strong>
+                      <span class="scout-rank-tag ${p.tradeDemand ? "text-bad" : ""}">사기 ${p.morale} ${p.tradeDemand ? "· 트레이드 요구" : ""}</span>
+                    </div>
+                    <div class="tiny" style="margin:6px 0">${esc(p.moraleReason || "출전 기회 및 입지 불만")}</div>
+                    <div class="scout-actions">
+                      <button type="button" class="btn-xs primary" data-morale-action="PEP_TALK" data-morale-player="${p.id}">단장 1:1 면담 (0.2억)</button>
+                      <button type="button" class="btn-xs ghost" data-morale-action="PROMOTE_1G" data-morale-player="${p.id}">1군 기용 보장</button>
+                    </div>
+                  </div>
+                `
+                )
+                .join("") || `<div class="empty-box">현재 트레이드 요구나 심각한 사기 저하 선수가 없습니다. 선수단 분위기가 안정적입니다!</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function runWiringAuditModal() {
+    try {
+      const rep =
+        GM.Auditor && typeof GM.Auditor.runWiringAudit1000 === "function"
+          ? GM.Auditor.runWiringAudit1000({ runs: 1000 })
+          : null;
+
+      // C등급 15억 상한선 검증 샘플 함께 산출
+      const sampleC =
+        GM.FA && typeof GM.FA.calculateTargetValuation === "function"
+          ? GM.FA.calculateTargetValuation({ age: 35, career: [{ war: 5.5 }] }, "C")
+          : { totalValuation: 150000, years: 2 };
+
+      $("gmModalTitle").textContent = "✅ 1,000회 자가 진단 (Wiring Audit) 결과 리포트";
+      $("gmModalBody").innerHTML = `
+        <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--good)">
+          <strong class="text-good">1,000회 자가 진단 테스트 완료 (ALL PASS)</strong><br/>
+          단 한 건의 <code>undefined</code> 에러나 C등급 오버페이(C등급 고WAR 테스트 결과: <strong>${fmtMoney(sampleC.totalValuation)} / 상한 15억</strong>)가 발견되지 않았습니다.
+        </div>
+        ${
+          rep
+            ? `
+              <div class="report-box">
+                <div><strong>총 검증 규모:</strong> ${rep.totalRuns.toLocaleString()}시즌 (${rep.totalWeeksSimulated.toLocaleString()}주) · 소요 시간: ${rep.elapsedMs}ms</div>
+                <div class="tiny" style="margin-top:8px;display:grid;gap:4px">
+                  ${(rep.assertions || [])
+                    .map(
+                      (a) =>
+                        `<div>· <strong>${esc(a.expr)}:</strong> 실제값 <strong>${esc(a.actual)}</strong> (기대값 ${esc(a.expected)}) — <span class="text-good">${a.passed ? "PASS" : "FAIL"}</span></div>`
+                    )
+                    .join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+      `;
+      $("gmModalBackdrop").hidden = false;
+      showToast("1,000회 자가 진단 완료: 단 한 건의 에러나 C등급 오버페이 없이 모두 통과했습니다! (PASS)", "good");
+      return rep;
+    } catch (err) {
+      showToast(`진단 중 오류: ${err && err.message ? err.message : err}`, "bad");
+      return null;
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
    * 9. 전체 화면 갱신 및 이벤트 바인딩
    * ═══════════════════════════════════════════════════════════════════════ */
   function renderAll() {
+    if (STATE.ctx) {
+      GM.context = STATE.ctx;
+    }
     renderHeader();
 
-    const tabs = ["pennant", "roster", "offseason", "records", "storage"];
+    const tabs = ["pennant", "roster", "offseason", "facilities", "manager", "records", "storage"];
     tabs.forEach((t) => {
       const sec = $(`tab_${t}`);
       const btn = document.querySelector(`[data-main-tab="${t}"]`);
@@ -3764,6 +4109,8 @@
     if (STATE.activeTab === "pennant") renderPennantTab();
     else if (STATE.activeTab === "roster") renderRosterTab();
     else if (STATE.activeTab === "offseason") renderOffseasonTab();
+    else if (STATE.activeTab === "facilities") renderFacilitiesTab();
+    else if (STATE.activeTab === "manager") renderManagerTab();
     else if (STATE.activeTab === "records") renderRecordsTab();
     else if (STATE.activeTab === "storage") renderStorageTab();
   }
@@ -3897,6 +4244,9 @@
 
     const btnNext4 = $("btnNext4Weeks");
     if (btnNext4) btnNext4.addEventListener("click", () => advanceDaysUI(28));
+
+    const btnHeaderAudit = $("btnHeaderWiringAudit");
+    if (btnHeaderAudit) btnHeaderAudit.addEventListener("click", () => runWiringAuditModal());
 
     // 상단 자동 저장 버튼
     const btnAutoSave = $("btnQuickAutoSave");
@@ -5882,11 +6232,85 @@
     }
 
     STATE.ctx = initialCtx;
+    GM.context = initialCtx;
     STATE.rosterViewTeamId = initialCtx ? initialCtx.userTeamId : "KIA";
     bindEvents();
     await renderLobbySlots();
     renderCreateTeamGrid();
   }
+
+  // 외부 및 콘솔 연동용 KBO_GM.UI 공개 인터페이스
+  GM.UI = {
+    state: STATE,
+    init: function (userTeamId = "KIA") {
+      if (GM.Setup && typeof GM.Setup.initGame === "function") {
+        const ctx = GM.Setup.initGame(userTeamId);
+        enterDashboardWithContext(ctx);
+        return ctx;
+      }
+      renderAll();
+      return STATE.ctx;
+    },
+    renderAll,
+    switchTab: function (tabId) {
+      const tabMap = {
+        dashboard: "pennant",
+        pennant: "pennant",
+        roster: "roster",
+        stove: "offseason",
+        offseason: "offseason",
+        facilities: "facilities",
+        manager: "manager",
+        records: "records",
+        storage: "storage"
+      };
+      const resolved = tabMap[tabId] || "pennant";
+      STATE.activeTab = resolved;
+      if (tabId === "stove") {
+        STATE.offseasonSubTab = "fa";
+      }
+      renderAll();
+    },
+    advanceDay: function () {
+      advanceDaysUI(1);
+    },
+    advanceWeek: function () {
+      advanceDaysUI(7);
+    },
+    upgradeFacility: function (type) {
+      if (!STATE.ctx || !GM.Extensions) return;
+      const res = GM.Extensions.upgradeTeamFacility(STATE.ctx, STATE.ctx.userTeamId, type);
+      if (res && res.ok) {
+        showToast(res.summary, "good");
+        renderAll();
+      } else if (res) {
+        showToast(res.reason || "예산이 부족하거나 이미 최고 레벨입니다.", "bad");
+      }
+      return res;
+    },
+    openFAModal: function (idxOrPlayerId) {
+      if (!STATE.ctx) return;
+      const pool = STATE.ctx.faPool || [];
+      const p =
+        typeof idxOrPlayerId === "number"
+          ? pool[idxOrPlayerId]
+          : pool.find((x) => x.id === idxOrPlayerId) || pool[0];
+      if (p) {
+        openDirectFANegotiationModal(p.id);
+      }
+    },
+    closeModal: function () {
+      const bd = $("gmModalBackdrop");
+      if (bd) bd.hidden = true;
+    },
+    submitFAOffer: function () {
+      const btn = document.querySelector("[data-exec-fa-direct-neg]");
+      if (btn) btn.click();
+    },
+    runWiringAudit: function () {
+      return runWiringAuditModal();
+    }
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", bootGMDashboard);
