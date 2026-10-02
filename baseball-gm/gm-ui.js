@@ -288,6 +288,8 @@
               .join("")
           : "";
     }
+    renderStovePhaseStrip(area, sub);
+
     const title = $("areaPageTitle");
     if (title) title.textContent = sub && area.subs.length > 1 ? `${area.label} · ${sub.label}` : area.label;
     const desc = $("areaPageDesc");
@@ -297,6 +299,30 @@
     document.title = `${sub && area.subs.length > 1 ? sub.label : area.label} · ${team ? team.name : "KBO"} 프런트 오피스`;
   }
 
+  // 스토브리그 단계 표시 (계약·이적 영역, 외국인·캠프 화면): 진행 중 / 예정 / 완료 / 마감
+  function renderStovePhaseStrip(area, sub) {
+    const el = $("stovePhaseStrip");
+    if (!el) return;
+    const show = STATE.ctx && GM.FrontOffice && typeof GM.FrontOffice.getStovePhases === "function" &&
+      (area.key === "contracts" || (sub && (sub.key === "foreign" || sub.key === "camp")));
+    el.hidden = !show;
+    if (!show) return;
+    const label = { DONE: "완료", OPEN: "진행 중", UPCOMING: "예정", CLOSED: "마감" };
+    const chip = { DONE: "it-fact", OPEN: "it-good", UPCOMING: "it-fact", CLOSED: "it-fact" };
+    const md = (d) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+    el.innerHTML = GM.FrontOffice.getStovePhases(STATE.ctx)
+      .map((ph) => {
+        const isHere = sub && sub.off === ph.target.sub;
+        const when =
+          ph.status === "OPEN" ? `마감 ${md(ph.end)} · D-${ph.dDay}` : ph.status === "UPCOMING" ? `${md(ph.start)} 시작 · D-${ph.dDay}` : `${md(ph.start)}~${md(ph.end)}`;
+        return `<button type="button" class="phase ${ph.status === "OPEN" ? "is-open" : ph.status === "DONE" ? "is-done" : ""}" data-goto-tab="${ph.target.tab}" data-goto-sub="${ph.target.sub}" ${isHere ? 'aria-current="page"' : ""}>
+          <span class="phase-name">${esc(ph.label)} <span class="it ${chip[ph.status]}">${label[ph.status]}</span></span>
+          <span class="phase-meta tnum">${esc(when)}</span>
+        </button>`;
+      })
+      .join("");
+  }
+
   // 프런트 심화 패널: 영역별로 필요한 섹션만 보이고, 다른 화면과 겹치는 섹션(1·3·4·7·8·9·11)은 숨긴다
   function applyFront5Focus() {
     const container = $("front5DashboardContainer");
@@ -304,6 +330,33 @@
     const show = STATE.front5Focus || FRONT5_KEPT;
     container.querySelectorAll("[data-f5]").forEach((el) => {
       el.hidden = !show.includes(Number(el.dataset.f5));
+    });
+  }
+
+  // 표의 숫자 열 자동 우측 정렬: 본문 칸의 70% 이상이 숫자(금액·비율·나이 등)인 열은 머리글과 칸을 함께 우측 정렬
+  const NUMERIC_CELL = /^[+\-−]?\.?\d[\d.,]*\s*(억|만|만원|세|%|명|개|일|주|승|패|G|K)?(\s*\([A-Z+\-]{1,2}\))?$/;
+  function alignNumericColumns(root) {
+    (root || document).querySelectorAll("table.gm-table").forEach((table) => {
+      if (table.querySelector("tr.group-head")) return;
+      const rows = Array.from(table.tBodies[0] ? table.tBodies[0].rows : []).filter((r) => !r.querySelector("[colspan]"));
+      if (!rows.length) return;
+      const cols = Math.max(...rows.map((r) => r.cells.length));
+      const heads = table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells : [];
+      for (let c = 0; c < cols; c++) {
+        let filled = 0;
+        let numeric = 0;
+        rows.forEach((r) => {
+          const cell = r.cells[c];
+          const txt = cell ? cell.textContent.trim() : "";
+          if (!txt || txt === "-") return;
+          filled += 1;
+          if (NUMERIC_CELL.test(txt)) numeric += 1;
+        });
+        if (filled && numeric / filled >= 0.7) {
+          rows.forEach((r) => r.cells[c] && r.cells[c].classList.add("num"));
+          if (heads.length === cols && heads[c]) heads[c].classList.add("num");
+        }
+      }
     });
   }
 
@@ -325,6 +378,8 @@
   function showToast(msg, type = "info") {
     const el = $("gmToast");
     if (!el) return;
+    // 엔진 메시지에 섞인 장식 이모지는 빼고 글자만 보여준다
+    msg = String(msg).replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]\uFE0F?\s?/gu, "");
     el.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-close" aria-label="알림 닫기">×</button>`;
     el.firstChild.textContent = msg;
     el.dataset.type = type;
@@ -384,7 +439,7 @@
     }
     const lobbyBtn = $("btnLobbyTheme");
     if (lobbyBtn) {
-      lobbyBtn.textContent = cur === "dark" ? "🌙 어둡게" : "☀️ 밝게";
+      lobbyBtn.textContent = cur === "dark" ? "어둡게" : "밝게";
     }
   }
 
@@ -441,7 +496,7 @@
         return `
           <div class="lobby-slot-card">
             <div class="lobby-slot-left">
-              <div class="lobby-ball-icon">⚾</div>
+              <div class="lobby-ball-icon"></div>
               <div>
                 <div class="lobby-slot-name">${esc(s.gmName || "백승수")}</div>
                 <div class="lobby-slot-sub">
@@ -948,27 +1003,27 @@
         .join(" · ");
 
       const psBtnLabel = thisYearPs
-        ? `✅ ${ctx.currentYear} 포스트시즌 종료 (우승: ${esc(thisYearPs.championTeamName)})`
+        ? `${ctx.currentYear} 포스트시즌 종료 (우승: ${esc(thisYearPs.championTeamName)})`
         : psGate.allowed
-        ? `🏆 ${ctx.currentYear} KBO 포스트시즌 진행 (WC → 준PO → PO → KS)`
-        : `🔒 10월 10일 가을야구 개막 시 활성화 (D-${psGate.daysRemaining}일)`;
+        ? `${ctx.currentYear} KBO 포스트시즌 진행 (WC → 준PO → PO → KS)`
+        : `10월 10일 가을야구 개막 시 활성화 (D-${psGate.daysRemaining}일)`;
 
       const psGateBannerHtml = thisYearPs
         ? `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--good)">
-             ✅ <strong>[${ctx.currentYear} KBO 포스트시즌 종료]</strong> 한국시리즈 통합 우승: <strong>${esc(thisYearPs.championTeamName)}</strong> · 준우승: <strong>${esc(thisYearPs.runnerUpTeamName)}</strong>
+             <strong>[${ctx.currentYear} KBO 포스트시즌 종료]</strong> 한국시리즈 통합 우승: <strong>${esc(thisYearPs.championTeamName)}</strong> · 준우승: <strong>${esc(thisYearPs.runnerUpTeamName)}</strong>
            </div>`
         : psGate.allowed
         ? `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--good);background:var(--good-soft)">
-             🟢 <strong>[${ctx.currentYear} KBO 가을야구 포스트시즌 개막!]</strong> 페넌트레이스가 종료되고 가을야구 시즌(10월 10일~)이 도래했습니다! 우측 상단 <strong>'🏆 ${ctx.currentYear} KBO 포스트시즌 진행'</strong> 버튼을 눌러 와일드카드부터 한국시리즈까지 진행하세요. (10월 31일 스토브리그 전환 시 자동 결산)
+             <strong>[${ctx.currentYear} KBO 가을야구 포스트시즌 개막!]</strong> 페넌트레이스가 종료되고 가을야구 시즌(10월 10일~)이 도래했습니다! 우측 상단 <strong>'${ctx.currentYear} KBO 포스트시즌 진행'</strong> 버튼을 눌러 와일드카드부터 한국시리즈까지 진행하세요. (10월 31일 스토브리그 전환 시 자동 결산)
            </div>`
         : `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--warn);background:var(--warn-soft)">
-             🔒 <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> KBO 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 공식 개막합니다. 정규시즌 일정을 진행해 상위 5개 시드를 확정하세요.
+             <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> KBO 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 공식 개막합니다. 정규시즌 일정을 진행해 상위 5개 시드를 확정하세요.
            </div>`;
 
       psPanel.innerHTML = `
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">🏆 KBO 포스트시즌(가을야구) 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h2>
+            <h2 class="panel-title">KBO 포스트시즌(가을야구) 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h2>
             <div class="tiny">정규시즌 상위 5개 구단 진출 · 4인 선발 압축 로테이션 &amp; 불펜 총력전 · 배당금(+15억~+50억 원) 및 구단주 신임도(+5~+25) 지급</div>
           </div>
           <button type="button" class="btn-primary" data-run-postseason="1" ${psGate.allowed && !thisYearPs ? "" : "disabled"}>
@@ -984,7 +1039,7 @@
             ? `
               <div class="report-box">
                 <div style="font-size:14px;margin-bottom:6px">
-                  <strong class="text-good">🎉 [${latestPs.year} KBO 한국시리즈 통합 우승: ${esc(latestPs.championTeamName)}]</strong>
+                  <strong class="text-good">[${latestPs.year} KBO 한국시리즈 통합 우승: ${esc(latestPs.championTeamName)}]</strong>
                   (준우승: ${esc(latestPs.runnerUpTeamName)})
                 </div>
                 <div class="tiny" style="display:grid;gap:4px">
@@ -1048,13 +1103,13 @@
               <span class="sep">·</span>
               <span class="tnum">전체 보유 <strong>${relStat.totalRosterSize}명</strong> (2군 ${viewTeam.roster2G.length}명 / 육성군 ${viewTeam.rosterDev.length}명)</span>
               <span class="sep">·</span>
-              <span class="tnum text-good">✅ <strong>2군·육성선수 상시 무제한 방출 가능</strong> (위약금 면제 · 연봉총액에서 즉시 제외)</span>
+              <span class="tnum text-good"><strong>2군·육성선수 상시 무제한 방출 가능</strong> (위약금 면제 · 연봉총액에서 즉시 제외)</span>
               <span class="sep">·</span>
               <span class="tnum">1군 무료방출 쿼터: <strong>${relStat.remainingFreeReleaseQuota}명</strong></span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <button type="button" class="btn-xs ghost text-bad" id="btnQuickReleaseLowest2GDev" ${removable2GDevCount <= 0 ? "disabled" : ""}>
-                🧹 2군/육성 최하위 1명 즉시 방출 (예산 절감)
+                2군/육성 최하위 1명 즉시 방출 (예산 절감)
               </button>
               <button type="button" class="btn-xs primary" id="btnAutoTrimDraftees" ${relStat.remainingFreeReleaseQuota <= 0 && removable2GDevCount <= 0 ? "disabled" : ""}>
                 신인 입단 수만큼 하위 전력 자동 방출 (${relStat.remainingFreeReleaseQuota}명)
@@ -1181,12 +1236,25 @@
     if (!tbody) return;
 
     if (!list.length) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty-cell">해당 분류에 등록된 선수가 없습니다.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="14" class="empty-cell">해당 분류에 등록된 선수가 없습니다.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = list
-      .map((p) => {
+    // 투수와 타자는 기록 항목이 달라서 그룹으로 나누고, 그룹마다 열 이름 행을 둔다
+    const futuresView = STATE.rosterSubTab !== "1GUN";
+    const groupHead = (type) =>
+      `<tr class="group-head"><th scope="colgroup" colspan="6">${type === "pitcher" ? "투수" : "타자"}</th>${(type === "pitcher"
+        ? ["경기", "이닝", "ERA", futuresView ? "승-패" : "승-패-세"]
+        : ["경기", "타율", "홈런", futuresView ? "OPS/타점" : "OPS"]
+      )
+        .map((h) => `<th scope="col" class="num">${h}</th>`)
+        .join("")}<th colspan="4"></th></tr>`;
+    const groups = ["pitcher", "batter"].map((t) => list.filter((p) => (t === "pitcher" ? p.type === "pitcher" : p.type !== "pitcher"))).filter((g) => g.length);
+    tbody.innerHTML = groups
+      .map((g) => groupHead(g[0].type === "pitcher" ? "pitcher" : "batter") + g.map(renderRosterRow).join(""))
+      .join("");
+
+    function renderRosterRow(p) {
         const m = p.metrics || {};
         const se = p.scoutError || { ovrMin: 60, ovrMax: 70 };
         const ovrDisplay = isOwnTeam
@@ -1196,29 +1264,24 @@
           ? `<span class="tnum">${p.potential}</span>`
           : `<span class="muted">스카우팅</span>`;
 
-        // 1군 기록 + 2군 퓨처스리그 기록 및 성장치 표시 ([요청 7])
+        // 이번 시즌 기록: 투수 G·이닝·ERA·승-패-세 / 타자 G·타율·홈런·OPS (2군 화면은 퓨처스 기록)
         const fRec = p.futuresRec || { g: 0, ab: 0, h: 0, hr: 0, rbi: 0, ip: 0, er: 0, k: 0, w: 0, l: 0, statGains: 0 };
-        let statLine = "";
-        if (STATE.rosterSubTab !== "1GUN" && (fRec.g || 0) > 0) {
-          if (p.type === "pitcher") {
-            const fEra = fRec.ip > 0 ? ((fRec.er * 9) / fRec.ip).toFixed(2) : "0.00";
-            statLine = `[2군] ${fRec.g}G ${fRec.ip.toFixed(1)}이닝 · ERA ${fEra} · ${fRec.w}승 ${fRec.l}패 ${fRec.k}K`;
-          } else {
-            const fAvg = fRec.ab > 0 ? (fRec.h / fRec.ab).toFixed(3) : ".000";
-            statLine = `[2군] ${fRec.g}G · 타율 ${fAvg} · ${fRec.hr}홈런 ${fRec.rbi}타점`;
-          }
-          if (fRec.statGains > 0) {
-            statLine += ` <strong class="text-good">(성장 +${fRec.statGains})</strong>`;
-          }
+        const useFutures = STATE.rosterSubTab !== "1GUN" && (fRec.g || 0) > 0;
+        let recCells;
+        if (p.type === "pitcher") {
+          const g = useFutures ? fRec.g : m.g || 0;
+          const ip = useFutures ? fRec.ip || 0 : Number(m.ip) || 0;
+          const era = useFutures ? (fRec.ip > 0 ? (fRec.er * 9) / fRec.ip : 0) : m.era || 0;
+          const wls = useFutures ? `${fRec.w}-${fRec.l}` : `${m.w || 0}-${m.l || 0}-${m.sv || 0}`;
+          recCells = [g, ip.toFixed(1), era.toFixed(2), wls];
         } else {
-          statLine =
-            p.type === "pitcher"
-              ? `${m.g || 0}G ${m.ip || 0}이닝 · ERA ${(m.era || 0).toFixed(2)} · ${m.w || 0}승 ${m.l || 0}패 ${m.sv || 0}세`
-              : `${m.g || 0}G · 타율 ${(m.avg || 0).toFixed(3)} · ${m.hr || 0}홈런 ${m.rbi || 0}타점 · OPS ${(m.ops || 0).toFixed(3)}`;
-          if (fRec.statGains > 0) {
-            statLine += ` <span class="text-good">(2군성장 +${fRec.statGains})</span>`;
-          }
+          const g = useFutures ? fRec.g : m.g || 0;
+          const avg = useFutures ? (fRec.ab > 0 ? fRec.h / fRec.ab : 0) : m.avg || 0;
+          const hr = useFutures ? fRec.hr : m.hr || 0;
+          const ops = useFutures ? null : m.ops || 0;
+          recCells = [g, avg.toFixed(3), hr, ops == null ? `${fRec.rbi}타점` : ops.toFixed(3)];
         }
+        const growthTag = fRec.statGains > 0 ? ` <span class="text-good tiny" title="2군 실전 성장">+${fRec.statGains}</span>` : "";
 
         const mil = p.military || {};
         const injHtml =
@@ -1228,32 +1291,33 @@
               ? `<span class="status-text bad">부상(${p.injury.weeksLeft}주)</span>`
               : `<span class="status-text good">정상(피로 ${p.fatigue || 0})${mil.status === "UNFULFILLED" && p.age >= 25 ? ` · <strong class="text-bad">미필(${p.age}세)</strong>` : ""}</span>`;
 
-        // 엔트리 이동 및 방출 버튼 ([요청 2]: 국내 선수도 방출 가능 + [PART 4-3] 상무 입대 지원)
-        let actionBtns = `<button type="button" class="btn-xs ghost" data-player-modal="${p.id}" data-team-id="${viewTeam.id}">상세</button>`;
+        // 행 동작: 가장 흔한 동작 1개만 보이고 나머지는 '⋯' 메뉴 (방출은 메뉴 안 · 확인 후 실행)
+        let primaryBtn = "";
+        const menuItems = [];
         if (isOwnTeam && p.status !== "MILITARY") {
-          if (p.status !== "1GUN") {
-            actionBtns += ` <button type="button" class="btn-xs primary" data-move-player="${p.id}" data-target-status="1GUN">1군 콜업</button>`;
-          }
-          if (p.status !== "2GUN") {
-            actionBtns += ` <button type="button" class="btn-xs" data-move-player="${p.id}" data-target-status="2GUN">2군행</button>`;
-          }
+          if (p.status !== "1GUN") primaryBtn = `<button type="button" class="btn-xs" data-move-player="${p.id}" data-target-status="1GUN">1군 콜업</button>`;
+          else primaryBtn = `<button type="button" class="btn-xs ghost" data-move-player="${p.id}" data-target-status="2GUN">2군행</button>`;
+          if (p.status !== "1GUN" && p.status !== "2GUN") menuItems.push(`<button type="button" data-move-player="${p.id}" data-target-status="2GUN">2군으로</button>`);
           if (p.nationality === "KOR") {
-            if (p.status !== "YUKSEONG") {
-              actionBtns += ` <button type="button" class="btn-xs ghost" data-move-player="${p.id}" data-target-status="YUKSEONG">육성군</button>`;
-            }
+            if (p.status !== "YUKSEONG") menuItems.push(`<button type="button" data-move-player="${p.id}" data-target-status="YUKSEONG">육성군으로</button>`);
             if (mil.status === "UNFULFILLED" && p.age >= 19 && p.age <= 27) {
-              actionBtns += ` <button type="button" class="btn-xs" data-enlist-sangmu="${p.id}" title="상무 피닉스 18개월 입대">상무입대</button>`;
+              menuItems.push(`<button type="button" data-enlist-sangmu="${p.id}">상무 입대 (18개월)</button>`);
             }
-            if (p.status === "2GUN" || p.status === "YUKSEONG") {
-              const estSave = Math.max(1000, Math.round((p.salary || 3000) * (p.status === "YUKSEONG" ? 1.0 : 0.85)));
-              actionBtns += ` <button type="button" class="btn-xs text-bad" data-release-domestic="${p.id}" title="2군/육성선수는 언제든 위약금 없이 즉시 방출하여 예산(${fmtMoney(estSave)})을 절감합니다">즉시방출(+${fmtMoney(estSave)})</button>`;
-            } else {
-              actionBtns += ` <button type="button" class="btn-xs ghost text-bad" data-release-domestic="${p.id}" title="1군 선수 웨이버 방출">방출</button>`;
-            }
+            const estSave = Math.max(1000, Math.round((p.salary || 3000) * (p.status === "YUKSEONG" ? 1.0 : 0.85)));
+            menuItems.push(
+              p.status === "2GUN" || p.status === "YUKSEONG"
+                ? `<button type="button" class="text-bad" data-release-domestic="${p.id}">방출 (연봉 ${fmtMoney(estSave)} 절감)</button>`
+                : `<button type="button" class="text-bad" data-release-domestic="${p.id}">웨이버 방출</button>`
+            );
           } else {
-            actionBtns += ` <button type="button" class="btn-xs ghost text-bad" data-release-foreign="${p.id}">퇴출(방출)</button>`;
+            menuItems.push(`<button type="button" class="text-bad" data-release-foreign="${p.id}">외국인 방출 (영구 퇴출)</button>`);
           }
         }
+        const actionBtns = `${primaryBtn}${
+          menuItems.length
+            ? `<details class="row-menu"><summary class="btn-xs ghost" aria-label="${esc(p.name)} 다른 동작">더보기</summary><div class="row-menu-pop">${menuItems.join("")}</div></details>`
+            : ""
+        }`;
 
         const originBadge =
           p.isAsianQuarter
@@ -1271,19 +1335,18 @@
               <strong>${esc(p.name)}</strong>
               ${originBadge}
             </td>
-            <td class="tnum">${p.age}세</td>
+            <td class="tnum num">${p.age}</td>
             <td>${esc(fmtHand(p))}</td>
-            <td>${ovrDisplay}</td>
-            <td>${potDisplay}</td>
-            <td class="tnum">${statLine}</td>
-            <td class="tnum font-bold ${(m.war || 0) >= 2 ? "text-good" : (m.war || 0) < 0 ? "text-bad" : ""}">${(m.war || 0).toFixed(2)}</td>
-            <td class="tnum">${fmtMoney(p.salary)}</td>
+            <td class="num">${ovrDisplay}</td>
+            <td class="num">${potDisplay}</td>
+            ${recCells.map((v, i) => `<td class="tnum num">${esc(String(v))}${i === 3 ? growthTag : ""}</td>`).join("")}
+            <td class="tnum num font-bold ${(m.war || 0) >= 2 ? "text-good" : (m.war || 0) < 0 ? "text-bad" : ""}">${(m.war || 0).toFixed(2)}</td>
+            <td class="tnum num">${fmtMoney(p.salary)}</td>
             <td>${injHtml}</td>
             <td class="action-cell" onclick="event.stopPropagation()">${actionBtns}</td>
           </tr>
         `;
-      })
-      .join("");
+    }
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -1348,15 +1411,15 @@
         ? "전 라운드 지명 완료"
         : canPickNow
           ? `현재 ${nextRound}라운드 스카우트 추천 지명`
-          : "🔒 9월 23일 지명 오픈 (추천 지명)";
+          : "9월 23일 지명 오픈 (추천 지명)";
     }
     if (btnPassR) {
       btnPassR.disabled = !canPickNow;
-      btnPassR.textContent = canPickNow ? "지명권 포기 (PASS)" : "🔒 9월 23일 오픈";
+      btnPassR.textContent = canPickNow ? "지명권 포기 (PASS)" : "9월 23일 오픈";
     }
     if (btnRunAll) {
       btnRunAll.disabled = !canPickNow;
-      btnRunAll.textContent = isDone ? "1~10R 완료됨" : canPickNow ? "1~10R 전 구단 자동 완료" : "🔒 9월 23일 일괄 지명 오픈";
+      btnRunAll.textContent = isDone ? "1~10R 완료됨" : canPickNow ? "1~10R 전 구단 자동 완료" : "9월 23일 일괄 지명 오픈";
     }
 
     // [요청 4-A] 신인드래프트 지명 순서 때 이름은 뒤의 마스코트 이름(표범즈 등)으로 표기 + 양도 지명권 반영
@@ -1374,10 +1437,10 @@
     });
 
     const dateStatusHtml = isDone
-      ? `<span class="text-good font-bold">✅ 금년도 1~10라운드 공식 지명 완료</span>`
+      ? `<span class="text-good font-bold">금년도 1~10라운드 공식 지명 완료</span>`
       : canPickNow
-        ? `<span class="text-good font-bold">🟢 [드래프트 지명 진행 가능] 오늘(9월 23일 이후) 직접 지명 또는 라운드 자동 지명을 실행할 수 있습니다! (현재 ${nextRound}R 차례 · 잔여 ${ctx.draftPool.length}명)</span>`
-        : `<span style="color:var(--warn);font-weight:700">⏳ [사전 스카우팅 기간] 신인 드래프트 직접 지명은 매년 <strong>9월 23일</strong>에 오픈됩니다. 9월 23일 전까지는 아래에서 스카우트 팀을 파견하고 유망주 스카우트 리포트를 열람하세요!</span>`;
+        ? `<span class="text-good font-bold">[드래프트 지명 진행 가능] 오늘(9월 23일 이후) 직접 지명 또는 라운드 자동 지명을 실행할 수 있습니다! (현재 ${nextRound}R 차례 · 잔여 ${ctx.draftPool.length}명)</span>`
+        : `<span style="color:var(--warn);font-weight:700">[사전 스카우팅 기간] 신인 드래프트 직접 지명은 매년 <strong>9월 23일</strong>에 오픈됩니다. 9월 23일 전까지는 아래에서 스카우트 팀을 파견하고 유망주 스카우트 리포트를 열람하세요!</span>`;
 
     $("draftStatusBanner").innerHTML = `
       <div>
@@ -1402,7 +1465,7 @@
         `<select id="draftPolicyPos${i}" class="gm-select"><option value="">—</option>${Object.entries(O.posGroups).map(([k, v]) => `<option value="${k}" ${pol.positions[i] === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>`;
       policyEl.innerHTML = `
         <div class="report-box" style="margin:12px 0">
-          <strong>📝 스카우트팀 위임 지명 방침 (4~10라운드)</strong>
+          <strong>스카우트팀 위임 지명 방침 (4~10라운드)</strong>
           <span class="tiny muted"> · 스카우트팀은 자기 추정치에 이 방침을 더해 지명합니다. 지명 결과는 번복할 수 없습니다.</span>
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px">
             <label class="tiny">육성 방향 ${sel("draftPolicyFocus", O.focus, pol.focus)}</label>
@@ -1421,7 +1484,7 @@
       const lastSeen = STATE.lastYouthViewing;
       youthEl.innerHTML = `
         <div class="report-box" style="margin:12px 0">
-          <strong>🏟️ 청소년 국가대표 경기 단장 직관</strong>
+          <strong>청소년 국가대표 경기 단장 직관</strong>
           <span class="tiny muted"> · 올해 ${evs.length ? evs[0].remaining : 0} / ${GM.Draft.YOUTH_VIEWING_LIMIT || 3}회 남음 · 행사일 ±${GM.Draft.YOUTH_VIEWING_WINDOW_DAYS || 10}일 안에만 가능 · 직관한 선수는 잠재력 추정이 크게 정확해집니다</span>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
             ${evs
@@ -1431,7 +1494,7 @@
                 <strong style="font-size:13px">${esc(ev.name)}</strong>
                 <div class="tiny muted">${esc(ev.date)} · 대표 ${ev.size}명 · ${statusLabel[ev.status] || ev.status}</div>
                 <button type="button" class="btn-xs ${ev.status === "OPEN" ? "primary" : "ghost"}" style="margin-top:6px" data-attend-youth="${esc(ev.id)}" ${ev.status === "OPEN" ? "" : "disabled"}>
-                  ${ev.status === "ATTENDED" ? "✅ 직관 완료" : ev.status === "OPEN" ? "단장 직관 가기" : statusLabel[ev.status] || ev.status}
+                  ${ev.status === "ATTENDED" ? "직관 완료" : ev.status === "OPEN" ? "단장 직관 가기" : statusLabel[ev.status] || ev.status}
                 </button>
               </div>`
               )
@@ -1460,7 +1523,7 @@
       scoutDispEl.innerHTML = `
         <div class="weekly-summary-banner" style="margin-bottom:12px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px;">
           <div>
-            <strong>🔭 아마추어 &amp; 독립리그 스카우트 팀 파견 배정 (9월 23일 드래프트 전 상시 운영)</strong>
+            <strong>아마추어 &amp; 독립리그 스카우트 팀 파견 배정 (9월 23일 드래프트 전 상시 운영)</strong>
             <span class="sep">·</span>
             <span class="tnum">배정 인원: <strong>${totS} / ${maxS}명</strong> (스카우트 Lv.${ctx.scoutLevel})</span>
             <span class="sep">·</span>
@@ -1514,7 +1577,7 @@
                 ${
                   canPickNow
                     ? `<button type="button" class="btn-sm primary" data-draft-pick="${r.playerId}">${nextRound}라운드 직접 지명</button>`
-                    : `<button type="button" class="btn-sm ghost" disabled title="매년 9월 23일부터 직접 지명이 가능합니다">🔒 9월 23일 직접 지명 오픈</button>`
+                    : `<button type="button" class="btn-sm ghost" disabled title="매년 9월 23일부터 직접 지명이 가능합니다">9월 23일 직접 지명 오픈</button>`
                 }
                 <button type="button" class="btn-sm ghost" data-player-modal="${r.playerId}" data-pool="draft">스카우트 리포트</button>
               </div>
@@ -1554,7 +1617,7 @@
                   !isDone
                     ? canPickNow
                       ? `<button type="button" class="btn-xs primary" data-draft-pick="${p.id}">${nextRound}R 직접지명</button>`
-                      : `<button type="button" class="btn-xs ghost" disabled title="9월 23일부터 직접 지명 가능">🔒 9/23 지명</button>`
+                      : `<button type="button" class="btn-xs ghost" disabled title="9월 23일부터 직접 지명 가능">9/23 지명</button>`
                     : `<button type="button" class="btn-xs" data-sign-undrafted="${p.id}">육성영입</button>`
                 }
                 <button type="button" class="btn-xs ghost" data-player-modal="${p.id}" data-pool="draft">리포트</button>
@@ -1726,22 +1789,22 @@
 
         const gradeTabs = [
           { key: "ALL", label: `전체 등급 (${gc.ALL})` },
-          { key: "A", label: `🅰️ A등급 (${gc.A})` },
-          { key: "B", label: `🅱️ B등급 (${gc.B})` },
-          { key: "C", label: `🅲 C등급 (${gc.C})` }
+          { key: "A", label: `A A등급 (${gc.A})` },
+          { key: "B", label: `B B등급 (${gc.B})` },
+          { key: "C", label: `C C등급 (${gc.C})` }
         ];
         const affTabs = [
           { key: "ALL", label: `전체 소속 (${ac.ALL})` },
-          { key: "HOME", label: `🏠 내 구단 원소속·우선협상 (${ac.HOME})` },
-          { key: "EXTERNAL", label: isPriority ? `🌐 타 구단 외부 FA (${phaseInfo.priorityEndsDate || "우선협상 종료 후"} 공개)` : `🌐 타 구단 외부 FA (${ac.EXTERNAL})` }
+          { key: "HOME", label: `내 구단 원소속·우선협상 (${ac.HOME})` },
+          { key: "EXTERNAL", label: isPriority ? `타 구단 외부 FA (${phaseInfo.priorityEndsDate || "우선협상 종료 후"} 공개)` : `타 구단 외부 FA (${ac.EXTERNAL})` }
         ];
         const posTabs = [
           { key: "ALL", label: `전 포지션 (${pc.ALL})` },
-          { key: "PITCHER", label: `⚾ 투수 전체 (${pc.PITCHER})` },
+          { key: "PITCHER", label: `투수 전체 (${pc.PITCHER})` },
           { key: "SP", label: `선발 SP (${pc.SP})` },
           { key: "RP", label: `불펜 RP (${pc.RP})` },
           { key: "CL", label: `마무리 CL (${pc.CL || 0})` },
-          { key: "C", label: `🧤 포수 C (${pc.C})` },
+          { key: "C", label: `포수 C (${pc.C})` },
           { key: "IF", label: `내야 전체 (${pc.IF})` },
           { key: "1B", label: `1B (${pc["1B"]})` },
           { key: "2B", label: `2B (${pc["2B"]})` },
@@ -1756,7 +1819,7 @@
           <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid ${isPriority ? "var(--warn)" : "var(--good)"};display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
             <div>
               <div style="font-size:13.5px">
-                <strong>${isPriority ? "🔒 [1단계: 원소속구단 우선협상 기간]" : "🔓 [2단계: 전 구단 완전 개방 (Open Market) 기간]"}</strong>
+                <strong>${isPriority ? "[1단계: 원소속구단 우선협상 기간]" : "[2단계: 전 구단 완전 개방 (Open Market) 기간]"}</strong>
                 <span class="sep">·</span>
                 <span class="tiny">${esc(phaseInfo.phaseLabel)}</span>
               </div>
@@ -1767,8 +1830,8 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               ${
                 isPriority
-                  ? `<span class="scout-rank-tag tnum">⏳ 우선협상 종료 ${esc(phaseInfo.priorityEndsDate || "-")} (D-${phaseInfo.priorityDaysLeft || 0}) · 이후 타 구단 FA 자동 공개</span>`
-                  : `<span class="scout-rank-tag tnum">🔓 자유협상 진행 중 · 1월 15일 FA 시장 마감</span>`
+                  ? `<span class="scout-rank-tag tnum">우선협상 종료 ${esc(phaseInfo.priorityEndsDate || "-")} (D-${phaseInfo.priorityDaysLeft || 0}) · 이후 타 구단 FA 자동 공개</span>`
+                  : `<span class="scout-rank-tag tnum">자유협상 진행 중 · 1월 15일 FA 시장 마감</span>`
               }
             </div>
           </div>
@@ -1777,7 +1840,7 @@
           <div class="report-box" style="padding:10px 12px">
             <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
-                <strong class="tiny" style="min-width:68px">🏷️ FA 등급:</strong>
+                <strong class="tiny" style="min-width:68px">FA 등급:</strong>
                 ${gradeTabs
                   .map(
                     (t) =>
@@ -1802,7 +1865,7 @@
               </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding-top:6px;border-top:1px solid var(--surface-subtle)">
-              <strong class="tiny" style="min-width:68px">⚾ 포지션:</strong>
+              <strong class="tiny" style="min-width:68px">포지션:</strong>
               ${posTabs
                 .map(
                   (t) =>
@@ -1864,9 +1927,9 @@
 
             const negBadgeHtml = negState
               ? negState.status === "WALKED_AWAY"
-                ? `<div class="tiny text-bad font-bold" style="margin-top:2px">❌ 협상 결렬 (${negState.round}/${negState.maxRounds}차)</div>`
+                ? `<div class="tiny text-bad font-bold" style="margin-top:2px">협상 결렬 (${negState.round}/${negState.maxRounds}차)</div>`
                 : negState.status === "COUNTERED" && negState.lastCounterOffer
-                ? `<div class="tiny" style="margin-top:2px;color:var(--warn);font-weight:700">💬 ${negState.round}/${negState.maxRounds}차 역제안: ${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}</div>`
+                ? `<div class="tiny" style="margin-top:2px;color:var(--warn);font-weight:700">${negState.round}/${negState.maxRounds}차 역제안: ${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}</div>`
                 : `<div class="tiny text-good" style="margin-top:2px">협상 진행중 (${negState.round}/${negState.maxRounds}차)</div>`
               : "";
 
@@ -1884,7 +1947,7 @@
                 <td>
                   <div>${esc(p.formerTeamName || p.formerTeamId)} (${esc(fmtMascot(p.formerTeamId))})</div>
                   <div class="tiny ${isHomeFA ? "text-good font-bold" : "muted"}" style="margin-top:2px">
-                    ${isHomeFA ? "🏠 내 구단 원소속 (우선협상 우대)" : isPriorityRestricted ? "🔒 우선협상 종료 후 영입 가능" : "🌐 외부 FA 영입 가능"}
+                    ${isHomeFA ? "내 구단 원소속 (우선협상 우대)" : isPriorityRestricted ? "우선협상 종료 후 영입 가능" : "외부 FA 영입 가능"}
                   </div>
                 </td>
                 <td class="tnum">
@@ -1918,10 +1981,10 @@
                 <td>
                   <div style="display:flex;flex-direction:column;gap:4px">
                     <button type="button" class="btn-xs primary" data-fa-logistic-modal="${p.id}">
-                      🤝 실전 협상 테이블 (${negState ? `${negState.round}/${negState.maxRounds}차` : "1~3차"})
+                      실전 협상 테이블 (${negState ? `${negState.round}/${negState.maxRounds}차` : "1~3차"})
                     </button>
                     <button type="button" class="btn-xs ${existingBid ? "primary" : "ghost"}" data-fa-bid="${p.id}">
-                      ${existingBid ? "✓ 입찰서 등록됨" : "📥 일괄입찰 등록"}
+                      ${existingBid ? "✓ 입찰서 등록됨" : "일괄입찰 등록"}
                     </button>
                   </div>
                 </td>
@@ -1941,7 +2004,7 @@
       } else {
         const directHtml = directHist.length
           ? `<div style="margin-bottom:8px">
-              <strong>🤝 실시간 직접 협상 &amp; 우선협상 타결 내역 (${directHist.length}건):</strong>
+              <strong>실시간 직접 협상 &amp; 우선협상 타결 내역 (${directHist.length}건):</strong>
               ${directHist
                 .slice(-8)
                 .reverse()
@@ -2007,7 +2070,7 @@
                 ? us.departedToUpperLeague
                     .map(
                       (d) =>
-                        `<div class="tiny text-bad" style="margin-top:4px">· ⚠️ <strong>${esc(d.name)}</strong>(${d.pos}): 우리 구단 제시액(${fmtMoney(d.offeredSalary)})이 최소 요구액(${fmtMoney(d.minAcceptSalary)})에 미달하여 <strong>${esc(d.suitorLeague)} ${esc(d.suitorClub)}</strong>(으)로 이적했습니다!</div>`
+                        `<div class="tiny text-bad" style="margin-top:4px">· <strong>${esc(d.name)}</strong>(${d.pos}): 우리 구단 제시액(${fmtMoney(d.offeredSalary)})이 최소 요구액(${fmtMoney(d.minAcceptSalary)})에 미달하여 <strong>${esc(d.suitorLeague)} ${esc(d.suitorClub)}</strong>(으)로 이적했습니다!</div>`
                     )
                     .join("")
                 : ""
@@ -2067,11 +2130,11 @@
                     : prof.agreedSalary || prof.recommendedOfferSalary || fp.salary;
                 const statusBadge =
                   prof.negotiationStatus === "AGREED"
-                    ? `<span class="text-good font-bold">✅ 재계약 합의 완료 (${fmtMoney(prof.agreedSalary || defaultOffer)})</span>`
+                    ? `<span class="text-good font-bold">재계약 합의 완료 (${fmtMoney(prof.agreedSalary || defaultOffer)})</span>`
                     : prof.negotiationStatus === "REJECTED_WARNING"
-                      ? `<span class="text-bad font-bold">⚠️ 협상 난항 (최소 ${fmtMoney(prof.minAcceptSalary)} 요구)</span>`
+                      ? `<span class="text-bad font-bold">협상 난항 (최소 ${fmtMoney(prof.minAcceptSalary)} 요구)</span>`
                       : prof.hasUpperLeagueOffer
-                        ? `<span style="color:var(--warn);font-weight:700">🔥 상위리그 오퍼 경쟁 중 (${esc(prof.suitorLeague)} ${esc(prof.suitorClub)})</span>`
+                        ? `<span style="color:var(--warn);font-weight:700">상위리그 오퍼 경쟁 중 (${esc(prof.suitorLeague)} ${esc(prof.suitorClub)})</span>`
                         : `<span class="muted">단독 재계약 협상 대기</span>`;
 
                 return `
@@ -2095,7 +2158,7 @@
                       <div class="tnum" style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                         <span>제시 연봉:</span>
                         <input type="number" class="num-input tnum" id="foreignOffer_${fp.id}" data-foreign-offer-input="${fp.id}" step="0.5" min="3.0" max="50.0" value="${toEokNum(defaultOffer)}" style="width:95px"> 억
-                        <button type="button" class="btn-xs primary" data-negotiate-foreign="${fp.id}">💬 재계약 조건 제시 협상</button>
+                        <button type="button" class="btn-xs primary" data-negotiate-foreign="${fp.id}">재계약 조건 제시 협상</button>
                       </div>
                     </div>
                     <div class="scout-actions">
@@ -2138,7 +2201,7 @@
       aqBox.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
           <div>
-            <h3 style="font-size:14.5px;margin:0;color:var(--est)">🌏 KBO 아시아 쿼터제 특별 영입 (구단당 1명 별도 보유 · 가성비 즉시전력)</h3>
+            <h3 style="font-size:14.5px;margin:0;color:var(--est)">KBO 아시아 쿼터제 특별 영입 (구단당 1명 별도 보유 · 가성비 즉시전력)</h3>
             <div class="tiny">기존 외국인 선수 3인 쿼터와 별개로 아시아야구연맹(일본·대만·호주) 소속 선수를 구단당 1명 추가 등록할 수 있습니다.</div>
           </div>
         </div>
@@ -2348,17 +2411,17 @@
         <div class="report-box" style="margin-bottom:12px;border-left:4px solid ${activeDirective ? "var(--warn)" : "var(--est)"}">
           <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
             <div>
-              <strong>📄 [현장 감독 트레이드 공식 문서 (TRADE_DIRECTIVE)]</strong>
+              <strong>[현장 감독 트레이드 공식 문서 (TRADE_DIRECTIVE)]</strong>
               <span class="sep">·</span>
               <span>현 감독: <strong>${esc(mgrState ? mgrState.managerName : "감독")}</strong> (신임도 <strong>${mgrState ? mgrState.managerTrust : 65}/100</strong> · 갈등게이지 <strong>${mgrState ? mgrState.conflictGauge : 35}</strong>)</span>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn-xs ghost" data-issue-trade-directive="1">📨 감독 약점포지션 베테랑 영입 요청서 수신</button>
+              <button type="button" class="btn-xs ghost" data-issue-trade-directive="1">감독 약점포지션 베테랑 영입 요청서 수신</button>
               ${
                 activeDirective
                   ? `
                     <button type="button" class="btn-xs primary" data-directive-action="AUTO_ACQUIRE" data-directive-id="${esc(activeDirective.id)}">
-                      ⚡ 요청 베테랑(${esc(activeDirective.topTarget ? activeDirective.topTarget.playerName : activeDirective.weakPosLabel)}) 즉시 트레이드 수혈 (신임도 +18)
+                      요청 베테랑(${esc(activeDirective.topTarget ? activeDirective.topTarget.playerName : activeDirective.weakPosLabel)}) 즉시 트레이드 수혈 (신임도 +18)
                     </button>
                     <button type="button" class="btn-xs text-bad" data-directive-action="REJECT_DIRECTIVE" data-directive-id="${esc(activeDirective.id)}">
                       ✕ 공식 요청 기각 (신임도 -20)
@@ -2382,7 +2445,7 @@
         <div class="weekly-summary-banner" style="margin-bottom:12px">
           <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <strong style="font-size:13.5px">🏟️ Step 1. 트레이드 협상 상대 구단 &amp; 국적 트랙 선택:</strong>
+              <strong style="font-size:13.5px">Step 1. 트레이드 협상 상대 구단 &amp; 국적 트랙 선택:</strong>
               <select id="tradePartnerSelect" class="gm-select">
                 ${otherTeams
                   .map(
@@ -2392,10 +2455,10 @@
                   .join("")}
               </select>
               <button type="button" class="btn-xs ${!isForeignTrack ? "primary" : "ghost"}" data-trade-nat-mode="DOMESTIC">
-                🇰🇷 내국인끼리 트레이드 (${allMyRoster.filter((p) => p.nationality === "KOR" && !p.isAsianQuarter).length}명 ↔ ${allPartnerRoster.filter((p) => p.nationality === "KOR" && !p.isAsianQuarter).length}명)
+                내국인끼리 트레이드 (${allMyRoster.filter((p) => p.nationality === "KOR" && !p.isAsianQuarter).length}명 ↔ ${allPartnerRoster.filter((p) => p.nationality === "KOR" && !p.isAsianQuarter).length}명)
               </button>
               <button type="button" class="btn-xs ${isForeignTrack ? "primary" : "ghost"}" data-trade-nat-mode="FOREIGN">
-                🌍 외국인끼리 트레이드 (${allMyRoster.filter((p) => (p.nationality && p.nationality !== "KOR") || p.isAsianQuarter).length}명 ↔ ${allPartnerRoster.filter((p) => (p.nationality && p.nationality !== "KOR") || p.isAsianQuarter).length}명)
+                외국인끼리 트레이드 (${allMyRoster.filter((p) => (p.nationality && p.nationality !== "KOR") || p.isAsianQuarter).length}명 ↔ ${allPartnerRoster.filter((p) => (p.nationality && p.nationality !== "KOR") || p.isAsianQuarter).length}명)
               </button>
               <button type="button" class="btn-xs ghost" id="btnResetTradeCards">협상 테이블 초기화</button>
             </div>
@@ -2423,9 +2486,9 @@
               <div style="font-size:13.5px">
                 <strong>[내가 구성한 직접 트레이드 제안서]</strong>
                 <span class="sep">·</span>
-                <span>📤 우리 제시: <strong class="text-good">${esc(myPkgSummary)}</strong></span>
+                <span>우리 제시: <strong class="text-good">${esc(myPkgSummary)}</strong></span>
                 <span style="margin:0 6px">⇄</span>
-                <span>📥 상대 요구(${esc(partnerTeam.name)}): <strong style="color:var(--est)">${esc(targetPkgSummary)}</strong></span>
+                <span>상대 요구(${esc(partnerTeam.name)}): <strong style="color:var(--est)">${esc(targetPkgSummary)}</strong></span>
               </div>
               <div class="tnum tiny" style="margin-top:4px">
                 <strong>[AI 단장 판정: ${esc(evalRes.reactionLabel || "카드 선택 대기")}]</strong>
@@ -2435,9 +2498,9 @@
               </div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="btn-sm ghost" data-action-auto-balance="1">🤝 AI 조건 자동 조율</button>
+              <button type="button" class="btn-sm ghost" data-action-auto-balance="1">AI 조건 자동 조율</button>
               <button type="button" class="btn-sm primary" data-action-propose-trade="1" ${!dlInfo.allowed ? "disabled" : ""}>
-                📨 ${esc(partnerTeam.name)}에 직접 트레이드 제안하기
+                ${esc(partnerTeam.name)}에 직접 트레이드 제안하기
               </button>
             </div>
           </div>
@@ -2446,7 +2509,7 @@
         <div class="grid-2col">
           <!-- 좌측: 우리 구단 제시 카드 -->
           <div class="panel" style="margin-bottom:0">
-            <h3 style="font-size:14px;margin:0 0 8px">📤 Step 2-A. 우리 구단 (${esc(userTeam.name)} · ${esc(fmtMascot(userTeam.id))}) 보낼 선수 선택</h3>
+            <h3 style="font-size:14px;margin:0 0 8px">Step 2-A. 우리 구단 (${esc(userTeam.name)} · ${esc(fmtMascot(userTeam.id))}) 보낼 선수 선택</h3>
             <div class="tiny muted" style="margin-bottom:6px">1) 보낼 선수 체크 (최대 3명 — 현재 ${STATE.tradeMyPlayerIds.length}명 선택됨)</div>
             <div style="max-height:220px;overflow-y:auto;border:1px solid var(--surface-subtle);border-radius:8px;margin-bottom:10px">
               ${renderPlayerSelectRows(myRoster, STATE.tradeMyPlayerIds, "data-trade-my-player")}
@@ -2469,7 +2532,7 @@
 
           <!-- 우측: 상대 구단 요구 카드 -->
           <div class="panel" style="margin-bottom:0">
-            <h3 style="font-size:14px;margin:0 0 8px">📥 Step 2-B. 상대 구단 (${esc(partnerTeam.name)} · ${esc(fmtMascot(partnerTeam.id))}) 영입할 선수 선택</h3>
+            <h3 style="font-size:14px;margin:0 0 8px">Step 2-B. 상대 구단 (${esc(partnerTeam.name)} · ${esc(fmtMascot(partnerTeam.id))}) 영입할 선수 선택</h3>
             <div class="tiny muted" style="margin-bottom:6px">1) 데려올 선수 체크 (최대 3명 — 현재 ${STATE.tradeTargetPlayerIds.length}명 선택됨)</div>
             <div style="max-height:220px;overflow-y:auto;border:1px solid var(--surface-subtle);border-radius:8px;margin-bottom:10px">
               ${renderPlayerSelectRows(partnerRoster, STATE.tradeTargetPlayerIds, "data-trade-target-player")}
@@ -2499,7 +2562,7 @@
         expEl.innerHTML = `
           <div class="report-box" style="border-left:4px solid var(--est)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <strong>🔍 타구단 단장 역제안(트레이드 오퍼) 탐색 결과 (${offers.length}건)</strong>
+              <strong>타구단 단장 역제안(트레이드 오퍼) 탐색 결과 (${offers.length}건)</strong>
               <span class="tiny muted">마음에 드는 제안을 선택해 협상 테이블에 불러오거나 즉시 수락할 수 있습니다.</span>
             </div>
             <div class="scout-grid">
@@ -2512,8 +2575,8 @@
                       <span class="scout-rank-tag tnum">가치차 ${of.diff > 0 ? "+" : ""}${of.diff}pt</span>
                     </div>
                     <div class="tiny" style="margin:6px 0">
-                      <div>📤 우리 제시: <strong>${esc(of.myDesc)}</strong></div>
-                      <div style="margin-top:2px">📥 상대 제시: <strong class="text-good">${esc(of.targetDesc)}</strong></div>
+                      <div>우리 제시: <strong>${esc(of.myDesc)}</strong></div>
+                      <div style="margin-top:2px">상대 제시: <strong class="text-good">${esc(of.targetDesc)}</strong></div>
                     </div>
                     <div class="scout-actions">
                       <button type="button" class="btn-xs primary" data-accept-explored-trade="${idx}">즉시 제안 수락 (트레이드 단행)</button>
@@ -2565,7 +2628,7 @@
     const financeHtml = fin
       ? `
       <div class="report-box" style="margin-bottom:12px">
-        <strong>📒 ${fin.year} 재정 장부 (난이도: ${esc(fin.difficulty.label)})</strong>
+        <strong>${fin.year} 재정 장부 (난이도: ${esc(fin.difficulty.label)})</strong>
         <div class="tiny tnum" style="margin-top:6px;line-height:1.7">
           모기업 지원금 <strong>${fmtMoney(fin.subsidy)}</strong>${fin.subsidyRank ? ` (직전 시즌 ${fin.subsidyRank}위 기준 · 순위 역순 지급)` : ""}
           · 이월금 <strong class="${fin.carryover < 0 ? "text-bad" : ""}">${fmtMoney(fin.carryover)}</strong><br>
@@ -2573,7 +2636,7 @@
           · 운영비 <strong class="text-bad">-${fmtMoney(fin.seasonOperatingCost)}</strong>
           · 연봉총액 <strong>${fmtMoney(fin.payroll)}</strong>
           · 여유 예산 <strong class="${fin.available < 0 ? "text-bad" : "text-good"}">${fmtMoney(fin.available)}</strong>
-          ${fin.deficitWeeks > 0 ? `<br><span class="text-bad">⚠️ 올해 적자 상태로 맞은 정산 ${fin.deficitWeeks}주 — 매주 구단주 신임도가 깎입니다.</span>` : ""}
+          ${fin.deficitWeeks > 0 ? `<br><span class="text-bad">올해 적자 상태로 맞은 정산 ${fin.deficitWeeks}주 — 매주 구단주 신임도가 깎입니다.</span>` : ""}
         </div>
         <div class="tiny muted" style="margin-top:6px">
           다음 시즌 모기업 지원금: ${fin.subsidyTable
@@ -2584,7 +2647,7 @@
       </div>`
       : "";
 
-    $("gmModalTitle").textContent = `💰 ${userTeam.name} 구단주 특별 운영 예산 증액 결재 상신`;
+    $("gmModalTitle").textContent = `${userTeam.name} 구단주 특별 운영 예산 증액 결재 상신`;
     $("gmModalBody").innerHTML = `
       <div class="weekly-summary-banner" style="margin-bottom:12px">
         <div>
@@ -2679,13 +2742,13 @@
     if (btnRunCamp) {
       if (activeCamp && activeCamp.status === "IN_PROGRESS") {
         btnRunCamp.disabled = true;
-        btnRunCamp.textContent = `⛺ 스프링캠프 진행 중 (${activeCamp.progressDays}/${activeCamp.durationDays}일차)`;
+        btnRunCamp.textContent = `스프링캠프 진행 중 (${activeCamp.progressDays}/${activeCamp.durationDays}일차)`;
       } else if (activeCamp && activeCamp.status === "COMPLETED") {
         btnRunCamp.disabled = true;
-        btnRunCamp.textContent = `✅ ${ctx.currentYear}시즌 스프링캠프 완료`;
+        btnRunCamp.textContent = `${ctx.currentYear}시즌 스프링캠프 완료`;
       } else {
         btnRunCamp.disabled = false;
-        btnRunCamp.textContent = "✈️ 스프링캠프 출발 (14일 전지훈련 시작)";
+        btnRunCamp.textContent = "스프링캠프 출발 (14일 전지훈련 시작)";
       }
     }
 
@@ -2697,14 +2760,14 @@
           <div class="report-box" style="border-left:4px solid var(--est)">
             <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
               <div>
-                <strong style="font-size:14px">⛺ [${esc(activeCamp.locationName)}] 스프링캠프 전지훈련 진행 중 (${activeCamp.progressDays} / ${activeCamp.durationDays}일차 · ${pct}%)</strong>
+                <strong style="font-size:14px">[${esc(activeCamp.locationName)}] 스프링캠프 전지훈련 진행 중 (${activeCamp.progressDays} / ${activeCamp.durationDays}일차 · ${pct}%)</strong>
                 <div class="tiny muted" style="margin-top:3px">
                   출발일: <strong>${esc(activeCamp.startDate)}</strong> · 귀국 및 결과 발표 예정일: <strong>${esc(activeCamp.endDate)}</strong> (잔여 ${remDays}일)
                 </div>
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" class="btn-xs ghost" data-camp-advance-days="1">⏩ 캠프 +1일 진행</button>
-                <button type="button" class="btn-xs primary" data-camp-advance-days="${remDays}">⏩ 캠프 귀국일까지 진행 (+${remDays}일 · 훈련 결과 확인)</button>
+                <button type="button" class="btn-xs ghost" data-camp-advance-days="1">캠프 +1일 진행</button>
+                <button type="button" class="btn-xs primary" data-camp-advance-days="${remDays}">캠프 귀국일까지 진행 (+${remDays}일 · 훈련 결과 확인)</button>
               </div>
             </div>
             <div style="margin:10px 0;height:8px;background:var(--surface-subtle);border-radius:999px;overflow:hidden">
@@ -2721,18 +2784,18 @@
       } else {
         const rep = (activeCamp && activeCamp.report) || ctx.lastCampReport || STATE.lastCampReport;
         if (!rep || !rep.userCampReport) {
-          campRepEl.innerHTML = `<div class="empty-box">코치진 인선과 캠프지를 선택한 뒤 <strong>'✈️ 스프링캠프 출발 (14일 전지훈련 시작)'</strong> 버튼을 누르세요. 출발 후 <strong>14일간의 캠프 일정</strong>이 진행된 뒤 최종 훈련 성과를 확인합니다.</div>`;
+          campRepEl.innerHTML = `<div class="empty-box">코치진 인선과 캠프지를 선택한 뒤 <strong>'스프링캠프 출발 (14일 전지훈련 시작)'</strong> 버튼을 누르세요. 출발 후 <strong>14일간의 캠프 일정</strong>이 진행된 뒤 최종 훈련 성과를 확인합니다.</div>`;
         } else {
           const u = rep.userCampReport;
           campRepEl.innerHTML = `
             <div class="report-box" style="border-left:4px solid var(--good)">
               <div>
-                <strong>✅ 14일 스프링캠프 전지훈련 최종 결과 보고서:</strong>
+                <strong>14일 스프링캠프 전지훈련 최종 결과 보고서:</strong>
                 ${esc(u.locationName)} (집행 비용 ${fmtMoney(u.cost)}${activeCamp ? ` · 기간: ${esc(activeCamp.startDate)} ~ ${esc(activeCamp.endDate)}` : ""})
               </div>
-              ${u.campMvp ? `<div style="margin-top:4px">· 🏆 <strong>캠프 MVP:</strong> ${esc(u.campMvp.name)} (${u.campMvp.pos}, ${u.campMvp.age}세) — 능력치 +${u.campMvp.totalStatGain}, 구종숙련 +${u.campMvp.pitchMasteryGain} (현 OVR ${u.campMvp.newTrueOvr})</div>` : ""}
-              ${u.newPitchUnlocked.length ? `<div style="margin-top:4px">· 🎯 <strong>신구종 장착 투수:</strong> ${u.newPitchUnlocked.map((np) => `${esc(np.name)}(${np.pitchKey} 숙련 ${np.mastery})`).join(", ")}</div>` : ""}
-              ${u.campInjuries.length ? `<div class="text-bad" style="margin-top:4px">· 🚑 <strong>캠프 부상자:</strong> ${u.campInjuries.map((ij) => `${esc(ij.name)}(${ij.label}, ${ij.weeksLeft}주)`).join(", ")}</div>` : `<div class="text-good" style="margin-top:4px">· 부상자 없이 전원 건강한 상태로 14일간의 캠프를 완주했습니다!</div>`}
+              ${u.campMvp ? `<div style="margin-top:4px">· <strong>캠프 MVP:</strong> ${esc(u.campMvp.name)} (${u.campMvp.pos}, ${u.campMvp.age}세) — 능력치 +${u.campMvp.totalStatGain}, 구종숙련 +${u.campMvp.pitchMasteryGain} (현 OVR ${u.campMvp.newTrueOvr})</div>` : ""}
+              ${u.newPitchUnlocked.length ? `<div style="margin-top:4px">· <strong>신구종 장착 투수:</strong> ${u.newPitchUnlocked.map((np) => `${esc(np.name)}(${np.pitchKey} 숙련 ${np.mastery})`).join(", ")}</div>` : ""}
+              ${u.campInjuries.length ? `<div class="text-bad" style="margin-top:4px">· <strong>캠프 부상자:</strong> ${u.campInjuries.map((ij) => `${esc(ij.name)}(${ij.label}, ${ij.weeksLeft}주)`).join(", ")}</div>` : `<div class="text-good" style="margin-top:4px">· 부상자 없이 전원 건강한 상태로 14일간의 캠프를 완주했습니다!</div>`}
             </div>
           `;
         }
@@ -2807,7 +2870,7 @@
         return `
           <div class="scout-card">
             <div class="scout-card-head">
-              <strong>🏗️ ${esc(spec.name)}</strong>
+              <strong>${esc(spec.name)}</strong>
               <span class="scout-rank-tag tnum">Lv.${curLv} / 5</span>
             </div>
             <div class="tiny" style="margin:6px 0">${esc(spec.desc)}</div>
@@ -2835,30 +2898,30 @@
         <div data-f5="1" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">1. 🏆 KBO 포스트시즌 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h3>
+              <h3 class="panel-title" style="font-size:15px">1. KBO 포스트시즌 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h3>
               <div class="tiny">정규시즌 1~5위 진출 · 4위 와일드카드 1승 어드밴티지 · 단기전 4선발 압축 로테이션 · 우승 배당금 +50억 &amp; 신임도 +25</div>
             </div>
             <button type="button" class="btn-sm primary" data-run-postseason="1" ${psGate.allowed && !thisYearPs ? "" : "disabled"}>
               ${
                 thisYearPs
-                  ? `✅ ${ctx.currentYear} 포스트시즌 종료`
+                  ? `${ctx.currentYear} 포스트시즌 종료`
                   : psGate.allowed
-                  ? `🏆 ${ctx.currentYear} 포스트시즌 토너먼트 진행`
-                  : `🔒 10/10 가을야구 개막 대기 (D-${psGate.daysRemaining}일)`
+                  ? `${ctx.currentYear} 포스트시즌 토너먼트 진행`
+                  : `10/10 가을야구 개막 대기 (D-${psGate.daysRemaining}일)`
               }
             </button>
           </div>
           ${
             thisYearPs
               ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good)">
-                   ✅ <strong>[${ctx.currentYear} KBO 포스트시즌 완료]</strong> 한국시리즈 챔피언: <strong>${esc(thisYearPs.championTeamName)}</strong> (준우승: ${esc(thisYearPs.runnerUpTeamName)})
+                   <strong>[${ctx.currentYear} KBO 포스트시즌 완료]</strong> 한국시리즈 챔피언: <strong>${esc(thisYearPs.championTeamName)}</strong> (준우승: ${esc(thisYearPs.runnerUpTeamName)})
                  </div>`
               : psGate.allowed
               ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good);background:var(--good-soft)">
-                   🟢 <strong>[${ctx.currentYear} KBO 가을야구 개막!]</strong> 정규시즌 일정이 마무리되어 포스트시즌 토너먼트를 진행할 수 있습니다. 우측 상단 버튼을 눌러 가을야구를 진행하세요!
+                   <strong>[${ctx.currentYear} KBO 가을야구 개막!]</strong> 정규시즌 일정이 마무리되어 포스트시즌 토너먼트를 진행할 수 있습니다. 우측 상단 버튼을 눌러 가을야구를 진행하세요!
                  </div>`
               : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--warn);background:var(--warn-soft)">
-                   🔒 <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 개막합니다. (현재 날짜: ${esc(ctx.currentDate)})
+                   <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 개막합니다. (현재 날짜: ${esc(ctx.currentDate)})
                  </div>`
           }
           ${
@@ -2882,36 +2945,36 @@
         <div data-f5="2" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">2. 🔄 KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
+              <h3 class="panel-title" style="font-size:15px">2. KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
               <div class="tiny">1R 양도금 4억 · 2R 3억 · 3R 2억 원 · 외국인/FA/신인(1~2년차)/군보류 자동 보호 외 핵심 35인 보호 (${ctx.currentYear}년: ${isBiennialYr ? "공식 개최 연도 · 11월 5일 개막" : `격년 휴식기 · ${Number(ctx.currentYear) + 1}년 11월 5일 개최`})</div>
             </div>
             <button type="button" class="btn-sm primary" data-run-biennial-draft="1" ${bdGate.allowed && !thisYearBd ? "" : "disabled"}>
               ${
                 thisYearBd
-                  ? `✅ ${ctx.currentYear} 2차 드래프트 완료`
+                  ? `${ctx.currentYear} 2차 드래프트 완료`
                   : !bdGate.isBiennialYear
-                  ? `🔒 격년 휴식기 (${Number(ctx.currentYear) + 1}년 11/5 개최)`
+                  ? `격년 휴식기 (${Number(ctx.currentYear) + 1}년 11/5 개최)`
                   : bdGate.allowed
-                  ? `🔄 ${ctx.currentYear} 2차 드래프트 1~3R 지명 진행`
-                  : `🔒 11/5 지명 오픈 대기 (D-${bdGate.daysRemaining}일)`
+                  ? `${ctx.currentYear} 2차 드래프트 1~3R 지명 진행`
+                  : `11/5 지명 오픈 대기 (D-${bdGate.daysRemaining}일)`
               }
             </button>
           </div>
           ${
             thisYearBd
               ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good)">
-                   ✅ <strong>[${ctx.currentYear} KBO 2차 드래프트 완료]</strong> 35인 보호명단 외 총 <strong>${thisYearBd.totalSelected}명</strong> 구단 간 지명 및 양도금 이적이 완료되었습니다.
+                   <strong>[${ctx.currentYear} KBO 2차 드래프트 완료]</strong> 35인 보호명단 외 총 <strong>${thisYearBd.totalSelected}명</strong> 구단 간 지명 및 양도금 이적이 완료되었습니다.
                  </div>`
               : !bdGate.isBiennialYear
               ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--text-faint)">
-                   🔒 <strong>[${ctx.currentYear}년 2차 드래프트 격년 휴식기]</strong> KBO 2차 드래프트는 격년(홀수 해: 2025·2027·2029년) <strong>11월 5일</strong>에 개최됩니다.
+                   <strong>[${ctx.currentYear}년 2차 드래프트 격년 휴식기]</strong> KBO 2차 드래프트는 격년(홀수 해: 2025·2027·2029년) <strong>11월 5일</strong>에 개최됩니다.
                  </div>`
               : bdGate.allowed
               ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good);background:var(--good-soft)">
-                   🟢 <strong>[${ctx.currentYear} KBO 2차 드래프트 지명 기간 개막!]</strong> 11월 5일 공식 지명일이 도래했습니다! 아래 <strong>[타 9개 구단 35인 보호 제외(비보호 노출) 후보 명단]</strong>에서 원하는 선수를 직접 지명하거나 우측 상단 <strong>'🔄 ${ctx.currentYear} 2차 드래프트 1~3R 지명 진행'</strong> 버튼을 누르세요. (11월 14일 마감 시 자동 진행)
+                   <strong>[${ctx.currentYear} KBO 2차 드래프트 지명 기간 개막!]</strong> 11월 5일 공식 지명일이 도래했습니다! 아래 <strong>[타 9개 구단 35인 보호 제외(비보호 노출) 후보 명단]</strong>에서 원하는 선수를 직접 지명하거나 우측 상단 <strong>'${ctx.currentYear} 2차 드래프트 1~3R 지명 진행'</strong> 버튼을 누르세요. (11월 14일 마감 시 자동 진행)
                  </div>`
               : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--warn);background:var(--warn-soft)">
-                   🔒 <strong>[2차 드래프트 지명 잠금 · D-${bdGate.daysRemaining}일]</strong> ${ctx.currentYear} KBO 2차 드래프트는 포스트시즌 종료 후 <strong>${ctx.currentYear}년 11월 5일</strong>에 공식 개막합니다. 개막 전까지 하단 <strong>[35인 보호선수 명단]</strong>을 정비하고 타 구단 비보호 예상 후보를 확인하세요.
+                   <strong>[2차 드래프트 지명 잠금 · D-${bdGate.daysRemaining}일]</strong> ${ctx.currentYear} KBO 2차 드래프트는 포스트시즌 종료 후 <strong>${ctx.currentYear}년 11월 5일</strong>에 공식 개막합니다. 개막 전까지 하단 <strong>[35인 보호선수 명단]</strong>을 정비하고 타 구단 비보호 예상 후보를 확인하세요.
                  </div>`
           }
           <div class="weekly-summary-banner" style="margin-bottom:8px">
@@ -2958,7 +3021,7 @@
                                   data-sec-draft-pick="${p.id}"
                                   ${bdGate.allowed ? "" : "disabled"}
                                 >
-                                  ${bdGate.allowed ? "1R 지명 영입" : "🔒 11/5 오픈"}
+                                  ${bdGate.allowed ? "1R 지명 영입" : "11/5 오픈"}
                                 </button>
                               </td>
                             </tr>
@@ -2992,7 +3055,7 @@
         <div data-f5="3" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">3. 🪖 상무 피닉스 야구단 병역 보류 시스템 (18개월 복무 · 실전 성장 · 정원/페이롤 제외)</h3>
+              <h3 class="panel-title" style="font-size:15px">3. 상무 피닉스 야구단 병역 보류 시스템 (18개월 복무 · 실전 성장 · 정원/페이롤 제외)</h3>
               <div class="tiny">만 19~26세 미필 선수 입대 가능 (구단당 최대 4명 복무) · 만 27세까지 미필 시 강제 일반 입대로 노쇠화 리스크 발생</div>
             </div>
           </div>
@@ -3041,7 +3104,7 @@
         <div data-f5="4" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">4. 🔬 구단 인프라 &amp; R&amp;D 3대 시설 투자 (Lv.1 ~ Lv.5 영구 버프)</h3>
+              <h3 class="panel-title" style="font-size:15px">4. 구단 인프라 &amp; R&amp;D 3대 시설 투자 (Lv.1 ~ Lv.5 영구 버프)</h3>
               <div class="tiny">현재 효과: 부상 위험 <strong>${Math.round((1 - facEff.injuryRiskMul) * 100)}% 감소</strong> · 2군 TP 획득 <strong>+${Math.round((facEff.tpGainMul - 1) * 100)}% 가속</strong> · 최대 파견 스카우트 <strong>${facEff.maxScouts}명</strong></div>
             </div>
           </div>
@@ -3052,7 +3115,7 @@
         <div data-f5="5" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">5. ⚖️ KBO 샐러리캡(경쟁균형세 · 올해 상한 ${fmtMoney(capLimit)}) &amp; 비FA 다년 연장 계약</h3>
+              <h3 class="panel-title" style="font-size:15px">5. KBO 샐러리캡(경쟁균형세 · 올해 상한 ${fmtMoney(capLimit)}) &amp; 비FA 다년 연장 계약</h3>
               <div class="tiny">상한 = 10개 구단 상위 40인 국내 연봉 평균의 120%. 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 연속 150% + 9단계 하락 (매년 12월 10일 심사)${lastTax && lastTax.isOverCap ? ` — 우리 구단 ${lastTax.year}년 ${lastTax.overCapStreak || 1}회 연속 초과` : ""}</div>
             </div>
             <button type="button" class="btn-sm" data-eval-luxury-tax="1">10개 구단 경쟁균형세 즉시 심사</button>
@@ -3069,7 +3132,7 @@
         <div data-f5="6" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">6. ✈️ KBO-MLB 포스팅 시스템 (리그 최정상급 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
+              <h3 class="panel-title" style="font-size:15px">6. KBO-MLB 포스팅 시스템 (리그 최정상급 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
               <div class="tiny">포스팅 기간(11월 1일~12월 15일)에 KBO ${ext.POSTING_MIN_SEASONS || 7}시즌 이상 뛴 만 31세 이하 국내 선수 중 종합 OVR ${ext.POSTING_MIN_OVR || 90} 이상 또는 단일 능력치 ${ext.POSTING_ELITE_STAT || 95} 이상인 1명에게만 MLB 구단의 제안이 들어옵니다. 승인 시 이적료(+100억~300억 원)와 구단주 신임도(+12)가 유입되고, 불허하면 그해에는 다시 제안이 오지 않습니다(사기 -18).</div>
             </div>
           </div>
@@ -3118,7 +3181,7 @@
         <div data-f5="7" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">7. 🏟️ 홈구장 리모델링 및 파크 팩터 개조 (펜스 거리 · 담장 높이 설계)</h3>
+              <h3 class="panel-title" style="font-size:15px">7. 홈구장 리모델링 및 파크 팩터 개조 (펜스 거리 · 담장 높이 설계)</h3>
               <div class="tiny">현재 홈구장: <strong>${esc(userTeam.park ? userTeam.park.name : "")}</strong> · 홈런 팩터 <strong>${userTeam.park ? userTeam.park.hr : 1.0}</strong> · 장타 팩터 <strong>${userTeam.park ? userTeam.park.xbh : 1.0}</strong> · 안타 팩터 <strong>${userTeam.park ? userTeam.park.hit : 1.0}</strong></div>
             </div>
           </div>
@@ -3128,7 +3191,7 @@
                 (pr) => `
                 <div class="scout-card">
                   <div class="scout-card-head">
-                    <strong>🏟️ ${esc(pr.label)}</strong>
+                    <strong>${esc(pr.label)}</strong>
                     <span class="scout-rank-tag tnum">${fmtMoney(pr.costManwon)}</span>
                   </div>
                   <div class="tiny" style="margin:6px 0">${esc(pr.desc)} (HR ${pr.hr} / XBH ${pr.xbh} / HIT ${pr.hit})</div>
@@ -3148,7 +3211,7 @@
         <div data-f5="8" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">8. 🎯 2군 맞춤형 육성 가이드라인 (구속 · 제구 · 신구종 · 선구안 · 파워 집중 과제)</h3>
+              <h3 class="panel-title" style="font-size:15px">8. 2군 맞춤형 육성 가이드라인 (구속 · 제구 · 신구종 · 선구안 · 파워 집중 과제)</h3>
               <div class="tiny">2군·육성군 유망주에게 맞춤형 집중 과제를 지정하면 주간 퓨처스리그 성장 확률이 +25% 가속되고 해당 능력치가 집중 상승합니다.</div>
             </div>
             <button type="button" class="btn-sm primary" data-auto-futures-train="1">미지정 유망주 일괄 최적 과제 부여</button>
@@ -3187,7 +3250,7 @@
         <div data-f5="9" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">9. 💬 라커룸 케미스트리 · 선수 사기(Morale) &amp; 트레이드 공식 요구 관리</h3>
+              <h3 class="panel-title" style="font-size:15px">9. 라커룸 케미스트리 · 선수 사기(Morale) &amp; 트레이드 공식 요구 관리</h3>
               <div class="tiny">1군급 기량(OVR 73+) 선수가 장기 2군 체류하거나 연봉 삭감 시 사기가 저하되며 트레이드 요구(Trade Demand)가 발생합니다.</div>
             </div>
           </div>
@@ -3230,15 +3293,15 @@
             <div data-f5="10" class="panel" style="margin-bottom:0">
               <div class="panel-head">
                 <div>
-                  <h3 class="panel-title" style="font-size:15px">10. 🛡️ FA 20인/25인 &amp; 2차 드래프트 35인 보호명단 수동 작성 및 AI 심리전</h3>
+                  <h3 class="panel-title" style="font-size:15px">10. FA 20인/25인 &amp; 2차 드래프트 35인 보호명단 수동 작성 및 AI 심리전</h3>
                   <div class="tiny">보호명단에서 제외된 선수 중 AI가 가장 노리는 1순위 유출 위험 타겟을 실시간 시뮬레이션합니다.</div>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
                   <button type="button" class="btn-xs ${pMode === "FA_20" ? "primary" : ""}" data-prot-mode="FA_20">FA A등급 (20인)</button>
                   <button type="button" class="btn-xs ${pMode === "FA_25" ? "primary" : ""}" data-prot-mode="FA_25">FA B등급 (25인)</button>
                   <button type="button" class="btn-xs ${pMode === "DRAFT_35" ? "primary" : ""}" data-prot-mode="DRAFT_35">2차 드래프트 (35인)</button>
-                  <button type="button" class="btn-xs ghost" data-prot-autofill="${pMode}">⚡ 자동 최적 구성</button>
-                  <button type="button" class="btn-xs primary" data-open-protection-mandate="${pMode}">👔 감독 보호명단 외압 이벤트(PROTECTION_MANDATE)</button>
+                  <button type="button" class="btn-xs ghost" data-prot-autofill="${pMode}">자동 최적 구성</button>
+                  <button type="button" class="btn-xs primary" data-open-protection-mandate="${pMode}">감독 보호명단 외압 이벤트(PROTECTION_MANDATE)</button>
                 </div>
               </div>
               <div class="weekly-summary-banner" style="margin-bottom:10px">
@@ -3246,20 +3309,20 @@
                 (자동보호 ${pState.autoExemptPlayers.length}명 별도)
                 ${
                   pState.aiDangerTarget
-                    ? ` · <strong class="text-bad">⚠️ AI 보상/지명 1순위 타겟: ${esc(pState.aiDangerTarget.name)}(${pState.aiDangerTarget.pos}, ${pState.aiDangerTarget.age}세, OVR ${pState.aiDangerTarget.getTrueOvr()})</strong>`
+                    ? ` · <strong class="text-bad">AI 보상/지명 1순위 타겟: ${esc(pState.aiDangerTarget.name)}(${pState.aiDangerTarget.pos}, ${pState.aiDangerTarget.age}세, OVR ${pState.aiDangerTarget.getTrueOvr()})</strong>`
                     : ""
                 }
               </div>
               <div class="grid-2col">
                 <div>
-                  <h4 style="font-size:13px;margin:0 0 6px">🔒 현재 보호명단 등록 선수 (${pState.protectedPlayers.length}/${pState.limit}명 · 클릭 시 해제)</h4>
+                  <h4 style="font-size:13px;margin:0 0 6px">현재 보호명단 등록 선수 (${pState.protectedPlayers.length}/${pState.limit}명 · 클릭 시 해제)</h4>
                   <div style="display:flex;flex-wrap:wrap;gap:6px">
                     ${pState.protectedPlayers
                       .map((pp) => {
                         const isLockedVet = (pState.lockedMandateIds || []).includes(pp.id);
                         return `
                         <button type="button" class="btn-xs primary" data-toggle-protect="${pp.id}" data-prot-target-mode="${pMode}">
-                          ${isLockedVet ? "📌[감독고정]" : "🔒"} ${esc(pp.name)} (${pp.pos}/${pp.age}세·OVR ${pp.getTrueOvr()}) ${isLockedVet ? "고정됨" : "✕"}
+                          ${isLockedVet ? "[감독고정]" : ""} ${esc(pp.name)} (${pp.pos}/${pp.age}세·OVR ${pp.getTrueOvr()}) ${isLockedVet ? "고정됨" : "✕"}
                         </button>
                       `;
                       })
@@ -3267,14 +3330,14 @@
                   </div>
                 </div>
                 <div>
-                  <h4 style="font-size:13px;margin:0 0 6px">🔓 보호 제외(노출) 선수 상위 15명 (클릭 시 보호명단 편입)</h4>
+                  <h4 style="font-size:13px;margin:0 0 6px">보호 제외(노출) 선수 상위 15명 (클릭 시 보호명단 편입)</h4>
                   <div style="display:flex;flex-wrap:wrap;gap:6px">
                     ${pState.exposedPlayers
                       .slice(0, 15)
                       .map(
                         (ep, idx) => `
                         <button type="button" class="btn-xs ${idx === 0 ? "text-bad" : "ghost"}" data-toggle-protect="${ep.id}" data-prot-target-mode="${pMode}">
-                          🔓 ${esc(ep.name)} (${ep.pos}/${ep.age}세·OVR ${ep.getTrueOvr()}) +보호
+                          ${esc(ep.name)} (${ep.pos}/${ep.age}세·OVR ${ep.getTrueOvr()}) +보호
                         </button>
                       `
                       )
@@ -3294,9 +3357,9 @@
           const severanceManwon = st.remainingContractYears * st.annualSalaryManwon;
           const stageLabels = [
             "정상 (협업 체제 유지)",
-            "🚨 [1단계 파국] 감독 언론 인터뷰 프런트 야구 공개 비판 (팬 민심 -15)",
-            "🚨 [2단계 파국] 감독 자진 사퇴 배수진 & 구단주 이사회 중재 청문회 개최",
-            "🚨 [3단계 파국] 단장 직권 감독 경질 선택지 활성화 (잔여 계약 위약금 예산 차감)"
+            "[1단계 파국] 감독 언론 인터뷰 프런트 야구 공개 비판 (팬 민심 -15)",
+            "[2단계 파국] 감독 자진 사퇴 배수진 & 구단주 이사회 중재 청문회 개최",
+            "[3단계 파국] 단장 직권 감독 경질 선택지 활성화 (잔여 계약 위약금 예산 차감)"
           ];
           const pendingDirs = (st.activeTradeDirectives || []).filter((d) => d.status === "PENDING");
           const cands = mc.REPLACEMENT_MANAGER_CANDIDATES || [];
@@ -3305,13 +3368,13 @@
             <div data-f5="11" class="panel" style="margin-bottom:0;border:1px solid ${st.managerTrust <= 20 ? "var(--bad)" : "var(--border)"}">
               <div class="panel-head">
                 <div>
-                  <h3 class="panel-title" style="font-size:15px">11. 👔 감독 요구 및 프런트 갈등 외압 시스템 (KBO_GM.RealisticGM · KBO_GM.ManagerConflict)</h3>
+                  <h3 class="panel-title" style="font-size:15px">11. 감독 요구 및 프런트 갈등 외압 시스템 (KBO_GM.RealisticGM · KBO_GM.ManagerConflict)</h3>
                   <div class="tiny">보호선수 명단 감독 외압(PROTECTION_MANDATE) · 핵심선수 트레이드 거부권 및 핀포인트 수혈 요청(TRADE_DIRECTIVE) · 갈등 게이지 및 1~3단계 파국 처리</div>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap">
-                  <button type="button" class="btn-xs primary" data-open-protection-mandate="${STATE.protectionMode || "FA_20"}">🛡️ 보호명단 감독 외압 모달</button>
-                  <button type="button" class="btn-xs" data-issue-trade-directive="1">📄 약점포지션 수혈 공문 발행</button>
-                  <button type="button" class="btn-xs ghost" data-sim-manager-crisis="1">⚡ 갈등 파국(신임도≤20) 단계 테스트</button>
+                  <button type="button" class="btn-xs primary" data-open-protection-mandate="${STATE.protectionMode || "FA_20"}">보호명단 감독 외압 모달</button>
+                  <button type="button" class="btn-xs" data-issue-trade-directive="1">약점포지션 수혈 공문 발행</button>
+                  <button type="button" class="btn-xs ghost" data-sim-manager-crisis="1">갈등 파국(신임도≤20) 단계 테스트</button>
                 </div>
               </div>
 
@@ -3342,16 +3405,16 @@
                 st.pendingBoardHearing || st.crisisStage === 2
                   ? `
                     <div class="report-box" style="margin-bottom:10px;border-left:4px solid var(--bad)">
-                      <div><strong class="text-bad">⚖️ [파국 2단계 · 감독 자진 사퇴 배수진 &amp; 구단주 이사회 중재 청문회 개최]</strong></div>
+                      <div><strong class="text-bad">[파국 2단계 · 감독 자진 사퇴 배수진 &amp; 구단주 이사회 중재 청문회 개최]</strong></div>
                       <div class="tiny" style="margin:6px 0">
                         ${esc(st.managerName)} 감독이 현장 기용 전권을 요구하며 자진 사퇴 배수진을 쳤습니다. 구단주 이사회 청문회에서 단장의 입장을 결정하십시오.
                       </div>
                       <div style="display:flex;gap:8px;flex-wrap:wrap">
                         <button type="button" class="btn-xs primary" data-board-hearing-choice="COMPROMISE">
-                          🤝 중재안 수용 · 현장 권한 보장 (감독 신임도 +25 · 구단주 신임도 -5)
+                          중재안 수용 · 현장 권한 보장 (감독 신임도 +25 · 구단주 신임도 -5)
                         </button>
                         <button type="button" class="btn-xs text-bad" data-board-hearing-choice="ESCALATE_TO_STAGE_3">
-                          🔥 프런트 원칙 고수 · 3단계 [감독 경질 인사권] 즉시 활성화
+                          프런트 원칙 고수 · 3단계 [감독 경질 인사권] 즉시 활성화
                         </button>
                       </div>
                     </div>
@@ -3363,7 +3426,7 @@
               <div class="report-box" style="margin-bottom:10px;border-left:4px solid ${st.canFireManager ? "var(--bad)" : "var(--border)"}">
                 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
                   <div>
-                    <strong>🪓 [파국 3단계 · 단장 직권 감독 경질 및 신임 감독 선임]</strong>
+                    <strong>[파국 3단계 · 단장 직권 감독 경질 및 신임 감독 선임]</strong>
                     <div class="tiny muted" style="margin-top:2px">
                       감독 신임도 20 이하 추락 또는 이사회 청문회 결렬 시 활성화됩니다. 경질 시 잔여 계약 기간(${st.remainingContractYears}년) 위약금 <strong>${fmtMoney(severanceManwon)}</strong>이 구단 예산(${fmtMoney(userTeam.budget)})에서 즉시 차감됩니다.
                     </div>
@@ -3378,7 +3441,7 @@
                         .join("")}
                     </select>
                     <button type="button" class="btn-xs ${st.canFireManager ? "primary" : "ghost"}" data-fire-manager-now="1" ${!st.canFireManager ? "disabled" : ""}>
-                      ${st.canFireManager ? `⚡ ${esc(st.managerName)} 감독 전격 경질 (위약금 -${fmtMoney(severanceManwon)})` : "경질 비활성 (신임도 20 이하 시 해금)"}
+                      ${st.canFireManager ? `${esc(st.managerName)} 감독 전격 경질 (위약금 -${fmtMoney(severanceManwon)})` : "경질 비활성 (신임도 20 이하 시 해금)"}
                     </button>
                   </div>
                 </div>
@@ -3387,7 +3450,7 @@
               <!-- 핀포인트 수혈 공식 문서 & 최근 감독-프런트 갈등 일지 -->
               <div class="grid-2col">
                 <div class="report-box">
-                  <strong>📄 감독 공식 트레이드 수혈 요청 문서 (${pendingDirs.length}건 대기)</strong>
+                  <strong>감독 공식 트레이드 수혈 요청 문서 (${pendingDirs.length}건 대기)</strong>
                   ${
                     pendingDirs.length
                       ? pendingDirs
@@ -3408,7 +3471,7 @@
                   }
                 </div>
                 <div class="report-box">
-                  <strong>📋 감독-프런트 외압 및 갈등 타임라인 로그</strong>
+                  <strong>감독-프런트 외압 및 갈등 타임라인 로그</strong>
                   ${
                     (st.conflictLogs || []).length
                       ? st.conflictLogs
@@ -3436,7 +3499,7 @@
             (deadlineInfo.teamStances || []).find((x) => x.teamId === userTeam.id) || {
               rank: 5,
               effectiveStance: "BUYER",
-              stanceLabel: "🔥 BUYER"
+              stanceLabel: "BUYER"
             };
           const deadlineDeals = rgm.deadlineProposals || [];
           const topStarForSal =
@@ -3447,7 +3510,7 @@
             <div data-f5="12" class="panel" style="margin-bottom:0;border:1px solid var(--est)">
               <div class="panel-head">
                 <div>
-                  <h3 class="panel-title" style="font-size:15px">12. 📊 단장(GM) 직무 보고서 기반 5대 리얼리즘 메카닉 (KBO_GM.RealisticGM)</h3>
+                  <h3 class="panel-title" style="font-size:15px">12. 단장(GM) 직무 보고서 기반 5대 리얼리즘 메카닉 (KBO_GM.RealisticGM)</h3>
                   <div class="tiny">① '지시완/허문회' 기용 거부 딜레마 · ② BATNA 다안건 협상 &amp; 연봉조정위(-50 락바텀) · ③ 예비 FA(faYears=7) 보상금 뻥튀기 방어 · ④ 7/31 Buyer/Seller 마감일 스탠스 · ⑤ 감봉 집단 항명 &amp; 미디어 여론전</div>
                 </div>
               </div>
@@ -3480,7 +3543,7 @@
                           .join("")}
                       </select>
                       <button type="button" class="btn-xs ghost" data-rgm-set-archetype="1">아키타입 적용</button>
-                      <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">🚨 기용 거부(벤치 방치) 면담 모달 열기</button>
+                      <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">기용 거부(벤치 방치) 면담 모달 열기</button>
                     </div>
                   </div>
                 </div>
@@ -3494,10 +3557,10 @@
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap">
                       <button type="button" class="btn-xs primary" data-rgm-multi-issue-neg="${topStarForSal ? topStarForSal.id : ""}">
-                        🤝 다안건(출전보장+옵션+다년) 패키지 협상 타결
+                        다안건(출전보장+옵션+다년) 패키지 협상 타결
                       </button>
                       <button type="button" class="btn-xs text-bad" data-rgm-run-arbitration="${topStarForSal ? topStarForSal.id : ""}">
-                        ⚖️ 1월 말 연봉조정위원회 판결 실행 (구단 승소 시 신뢰도 -50)
+                        1월 말 연봉조정위원회 판결 실행 (구단 승소 시 신뢰도 -50)
                       </button>
                     </div>
                   </div>
@@ -3526,7 +3589,7 @@
                           </div>
                           <div class="scout-actions">
                             <button type="button" class="btn-xs primary" data-rgm-fa-bump="${c.playerId}" ${c.alreadyBumped ? "disabled" : ""}>
-                              ${c.alreadyBumped ? "✅ 보상금 방어막 가동 완료" : "🛡️ 연봉 180% 전략적 인상 (AI 입찰 -72% 차단)"}
+                              ${c.alreadyBumped ? "보상금 방어막 가동 완료" : "연봉 180% 전략적 인상 (AI 입찰 -72% 차단)"}
                             </button>
                           </div>
                         </div>
@@ -3544,8 +3607,8 @@
                       <div class="tiny muted" style="margin-top:2px">Buyer(유망주 지불 &amp; 렌탈 베테랑 영입) vs Seller(베테랑 양도 &amp; 특급 유망주·2R 지명권 수급) AI 자동 스탠스 전환 및 마감일 블록버스터 딜</div>
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap">
-                      <button type="button" class="btn-xs primary" data-rgm-deadline-stance="BUYER">🔥 BUYER(윈나우 매수) 오퍼 생성</button>
-                      <button type="button" class="btn-xs" data-rgm-deadline-stance="SELLER">🌱 SELLER(리빌딩 매각) 오퍼 생성</button>
+                      <button type="button" class="btn-xs primary" data-rgm-deadline-stance="BUYER">BUYER(윈나우 매수) 오퍼 생성</button>
+                      <button type="button" class="btn-xs" data-rgm-deadline-stance="SELLER">SELLER(리빌딩 매각) 오퍼 생성</button>
                     </div>
                   </div>
                   ${
@@ -3575,10 +3638,10 @@
                       <div class="tiny muted" style="margin-top:2px">고강도 연봉 삭감 시 선수단 집단 항명(팀 컨디션 -0.12 · 팬 민심 -15) 발동! 미디어 인터뷰 대처에 따라 구단주 신임도 및 언론 여론이 변동됩니다.</div>
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap">
-                      <button type="button" class="btn-xs text-bad" data-rgm-trigger-rebellion="1">🔥 감봉 집단 항명 발동 테스트</button>
-                      <button type="button" class="btn-xs ghost" data-rgm-media-response="HARDLINE_PRINCIPLE">🎙️ 강경 원칙론 (구단주+10 / 여론-18)</button>
-                      <button type="button" class="btn-xs primary" data-rgm-media-response="CONCILIATORY_BONUS">🤝 유화책·보너스 신설 (여론+22 / 사기+20)</button>
-                      <button type="button" class="btn-xs" data-rgm-media-response="TRANSPARENT_REBUILD_PR">📊 리빌딩 재투자 브리핑 (구단주+6 / 여론+16)</button>
+                      <button type="button" class="btn-xs text-bad" data-rgm-trigger-rebellion="1">감봉 집단 항명 발동 테스트</button>
+                      <button type="button" class="btn-xs ghost" data-rgm-media-response="HARDLINE_PRINCIPLE">강경 원칙론 (구단주+10 / 여론-18)</button>
+                      <button type="button" class="btn-xs primary" data-rgm-media-response="CONCILIATORY_BONUS">유화책·보너스 신설 (여론+22 / 사기+20)</button>
+                      <button type="button" class="btn-xs" data-rgm-media-response="TRANSPARENT_REBUILD_PR">리빌딩 재투자 브리핑 (구단주+6 / 여론+16)</button>
                     </div>
                   </div>
                 </div>
@@ -3652,7 +3715,7 @@
         </div>
         <div class="grid-3col" style="margin-top:10px">
           <div>
-            <strong class="tiny">🔁 트레이드 장부 (트레이드 연도부터 누적 WAR)</strong>
+            <strong class="tiny">트레이드 장부 (트레이드 연도부터 누적 WAR)</strong>
             <table class="gm-table compact"><tbody>
               ${(r.tradeLedger || [])
                 .slice()
@@ -3662,14 +3725,14 @@
                   (t) => `<tr title="받음: ${esc(t.receivedNames.join(", "))} / 보냄: ${esc(t.sentNames.join(", "))}">
                     <td class="tnum">${esc(t.date || String(t.year))}</td>
                     <td>${esc(t.partnerTeamName)}<div class="tiny muted">받음 ${esc(t.receivedNames.join(", "))}</div></td>
-                    <td class="tnum ${t.netWar >= 0 ? "text-good" : "text-bad"}">${sign(t.netWar)}<div class="tiny muted">+${t.gainedWar} / -${t.lostWar}</div></td>
+                    <td class="tnum ${t.netWar >= 0 ? "text-good" : "text-bad"}">${sign(t.netWar)}<div class="tiny muted">+${t.gainedWar} / -${t.lostWar}${t.departedCount ? ` · 리그 이탈 ${t.departedCount}명(이탈 전 기록 포함)` : ""}</div></td>
                   </tr>`
                 )
                 .join("") || `<tr><td class="muted">아직 트레이드가 없습니다.</td></tr>`}
             </tbody></table>
           </div>
           <div>
-            <strong class="tiny">🎓 드래프트 성과 (지명 연도별 누적 WAR)</strong>
+            <strong class="tiny">드래프트 성과 (지명 연도별 누적 WAR)</strong>
             <table class="gm-table compact"><tbody>
               ${(r.draftClasses || [])
                 .slice(0, 6)
@@ -3685,11 +3748,23 @@
             </tbody></table>
           </div>
           <div>
-            <strong class="tiny">💰 구단주 증액 효과 (올해)</strong>
+            <strong class="tiny">구단주 증액 효과 (올해)</strong>
             ${
               r.ownerSupport && r.ownerSupport.grantsThisYear
-                ? `<div class="tiny" style="margin-top:4px">승인 ${r.ownerSupport.grantsThisYear}회 · ${fmtMoney(r.ownerSupport.amountManwon)} → 이후 영입 선수 WAR <strong class="${r.ownerSupport.acquiredWar >= 0 ? "text-good" : "text-bad"}">${sign(r.ownerSupport.acquiredWar)}</strong>${r.ownerSupport.warPerEok != null ? ` (1억당 ${r.ownerSupport.warPerEok}승)` : ""}</div>
-                   <div class="tiny muted">${r.ownerSupport.acquiredAfter.map((a) => `${esc(a.name)} ${sign(a.war)}`).join(" · ") || "증액 이후 영입 없음"}</div>`
+                ? (() => {
+                    const os = r.ownerSupport;
+                    const hasNeed = typeof os.neededManwon === "number";
+                    return `<div class="tiny" style="margin-top:4px">승인 ${os.grantsThisYear}회 · ${fmtMoney(os.amountManwon)}${
+                      hasNeed
+                        ? ` · 증액 이후 최저 여유 예산 ${fmtMoney(os.minRoomManwon)} → <strong>실제로 필요했던 증액 ${fmtMoney(os.neededManwon)}</strong>`
+                        : ""
+                    }</div>
+                    <div class="tiny" style="margin-top:2px">증액 덕분으로 보는 WAR <strong class="${os.acquiredWar >= 0 ? "text-good" : "text-bad"}">${sign(os.acquiredWar)}</strong>${
+                      hasNeed ? ` <span class="muted">(증액 이후 영입 선수 WAR ${sign(os.rawAcquiredWar)} × 기여 비율 ${os.attributionShare}%)</span>` : ""
+                    }${os.warPerEok != null ? ` · 필요 증액 1억당 ${os.warPerEok}승` : ""}</div>
+                    ${hasNeed && os.neededManwon === 0 ? `<div class="tiny muted">여유 예산이 한 번도 증액액 아래로 내려가지 않았습니다 — 증액 없이도 같은 영입이 가능했으므로 효과 0으로 봅니다.</div>` : ""}
+                    <div class="tiny muted">${os.acquiredAfter.map((a) => `${esc(a.name)} ${sign(a.war)}`).join(" · ") || "증액 이후 영입 없음"}</div>`;
+                  })()
                 : `<div class="tiny muted" style="margin-top:4px">올해 승인된 증액 없음${r.ownerSupport && r.ownerSupport.allTimeManwon ? ` (누적 ${fmtMoney(r.ownerSupport.allTimeManwon)})` : ""}</div>`
             }
           </div>
@@ -4009,7 +4084,7 @@
 
     const pitchesHtml =
       report && report.pitchDetails && report.pitchDetails.length
-        ? `<div style="margin-top:12px"><strong>보유 구종 및 숙련도:</strong> ${report.pitchDetails
+        ? `<div class="tiny" style="margin-top:8px"><strong>구종 · 숙련도:</strong> ${report.pitchDetails
             .map((pt) => `${esc(pt.name)}(${esc(pt.masteryDisplay)})`)
             .join(" · ")}</div>`
         : player.type === "pitcher" && player.pitches && player.pitches.length
@@ -4018,30 +4093,75 @@
               .join(" · ")} · 최고구속 시속 ${GM.kmh(player.st.velo)}km</div>`
           : "";
 
-    const careerHtml =
-      player.career && player.career.length
-        ? `<div style="margin-top:12px"><strong>시즌별 통산 기록:</strong>
-            <div class="tiny" style="margin-top:4px">${player.career
-              .map((c) => `${c.year}년(${c.age}세): WAR ${c.war}`)
-              .join(" / ")}</div>
-           </div>`
-        : "";
+    // 정보 유형: 우리 선수는 확정, 그 외(타 구단·아마추어·해외)는 스카우트 추정
+    const known = isOwnTeam;
+    const typeChip = known ? `<span class="it it-fact">확정</span>` : `<span class="it it-est">추정</span>`;
+    const ovrText = report ? report.ovrDisplay : String(player.getTrueOvr());
+    const potText = report ? report.potentialDisplay : String(player.potential);
+    const scoutPct = report ? report.scoutProgress : known ? 100 : null;
+
+    const m = player.metrics || {};
+    const seasonLine =
+      player.type === "pitcher"
+        ? [["경기", m.g || 0], ["이닝", Number(m.ip || 0).toFixed(1)], ["ERA", (m.era || 0).toFixed(2)], ["승-패-세", `${m.w || 0}-${m.l || 0}-${m.sv || 0}`], ["WAR", (m.war || 0).toFixed(2)]]
+        : [["경기", m.g || 0], ["타율", (m.avg || 0).toFixed(3)], ["홈런", m.hr || 0], ["OPS", (m.ops || 0).toFixed(3)], ["WAR", (m.war || 0).toFixed(2)]];
+
+    // 계약 정보 (확정)
+    const nfc = player.nonFAContract && player.nonFAContract.active ? player.nonFAContract : null;
+    const reqFa = player.origin === "UNIV" ? 7 : 8;
+    const toFa = Math.max(0, reqFa - (player.faYears || 0));
+    const mil = player.military || {};
+    const isDomestic = !player.nationality || player.nationality === "KOR";
+    const contractRows = [
+      ["연봉", fmtMoney(player.salary)],
+      ["계약 기간", nfc ? `${nfc.startYear}~${nfc.startYear + nfc.years - 1} (비FA 다년)` : (player.contractYears || 1) > 1 ? `잔여 ${player.contractYears}년` : "단년"],
+      isDomestic ? ["FA까지", toFa === 0 ? "자격 충족" : `${toFa}시즌 (현재 ${player.faYears || 0}시즌)`] : ["국적", player.nationality],
+      isDomestic ? ["병역", player.status === "MILITARY" ? "상무 복무 중" : mil.status === "UNFULFILLED" ? "미필" : "해결"] : null,
+      nfc ? ["포스팅 조항", nfc.postingClause ? "허용" : "불허"] : null,
+      nfc ? ["올해 보장 연봉", fmtMoney((nfc.schedule.find((x) => x.year === ctx.currentYear) || nfc.schedule[0]).salary)] : null
+    ].filter(Boolean);
+    const careerRows = (player.career || []).slice(-8).reverse();
 
     const modalBody = $("gmModalBody");
-    $("gmModalTitle").textContent = `${player.name} (${report ? report.positionDetail : player.pos} · ${player.age}세 · ${fmtHand(player)})`;
+    $("gmModalTitle").textContent = `${player.name} · ${report ? report.positionDetail : player.pos} · ${player.age}세 · ${fmtHand(player)}`;
     modalBody.innerHTML = `
-      <div class="modal-meta-line">
-        <span>구분/상태: <strong>${esc(report ? report.groupLabel : player.teamId || player.status)}</strong></span>
-        <span class="sep">·</span>
-        <span>스카우트 조사도: <strong>${report ? `${report.scoutProgress}%` : isOwnTeam ? "100%" : `Lv.${ctx.scoutLevel}`}</strong></span>
-        <span class="sep">·</span>
-        <span>종합 능력치(OVR): <strong>${esc(report ? report.ovrDisplay : `${player.getTrueOvr()}`)}</strong> (잠재력 ${esc(report ? report.potentialDisplay : `${player.potential}`)})</span>
-        <span class="sep">·</span>
-        <span>연봉: <strong>${fmtMoney(player.salary)}</strong></span>
-      </div>
-      <div class="modal-stat-list" style="margin-top:14px">${statBarsHtml}</div>
-      ${pitchesHtml}
-      ${careerHtml}
+      <section class="modal-section" style="margin-top:0">
+        <h4>평가 ${typeChip}${scoutPct != null && !known ? `<span class="tiny muted">조사 ${scoutPct}% · 스카우트 Lv.${ctx.scoutLevel}</span>` : ""}</h4>
+        <dl class="kv-grid">
+          <div><dt>종합 능력치 (OVR)</dt><dd class="${known ? "" : "est-val"}">${esc(ovrText)}</dd></div>
+          <div><dt>잠재력</dt><dd class="${known ? "" : "est-val"}">${esc(potText)}</dd></div>
+          <div><dt>소속 · 상태</dt><dd>${esc(report ? report.groupLabel : player.teamId || player.status)}</dd></div>
+        </dl>
+        ${known ? "" : `<div class="tiny muted" style="margin-top:6px">범위로 표시된 값은 스카우트 추정치입니다. 조사도가 오르거나 단장이 직접 보면 범위가 좁아집니다.</div>`}
+      </section>
+      <section class="modal-section">
+        <h4>이번 시즌 기록 <span class="it it-fact">확정</span></h4>
+        <dl class="kv-grid">${seasonLine.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(String(v))}</dd></div>`).join("")}</dl>
+      </section>
+      <section class="modal-section">
+        <h4>계약 <span class="it it-fact">확정</span></h4>
+        <dl class="kv-grid">${contractRows.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(String(v))}</dd></div>`).join("")}</dl>
+      </section>
+      <section class="modal-section">
+        <h4>세부 능력치 ${typeChip}</h4>
+        <div class="modal-stat-list">${statBarsHtml}</div>
+        ${pitchesHtml}
+      </section>
+      ${
+        careerRows.length
+          ? `<section class="modal-section">
+              <h4>지난 시즌 <span class="it it-fact">확정</span></h4>
+              <table class="gm-table compact"><thead><tr><th>시즌</th><th>나이</th><th>소속</th><th>WAR</th></tr></thead><tbody>
+                ${careerRows
+                  .map((c) => {
+                    const t = c.teamId ? ctx.getTeam(c.teamId) : null;
+                    return `<tr><td class="tnum">${c.year}</td><td class="tnum">${c.age}</td><td>${esc(t ? t.name : c.teamId || "-")}</td><td class="tnum">${Number(c.war || 0).toFixed(2)}</td></tr>`;
+                  })
+                  .join("")}
+              </tbody></table>
+            </section>`
+          : ""
+      }
     `;
     $("gmModalBackdrop").hidden = false;
   }
@@ -4130,7 +4250,7 @@
     const ev = trig.mandateEvent;
     const st = mc.ensureManagerConflictState(userTeam);
 
-    $("gmModalTitle").textContent = `👔 ${ev.title}`;
+    $("gmModalTitle").textContent = `${ev.title}`;
     $("gmModalBody").innerHTML = `
       <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--warn)">
         <div>
@@ -4146,7 +4266,7 @@
       <div class="grid-2col" style="margin-bottom:14px">
         <div class="scout-card" style="border-left:4px solid var(--good)">
           <div class="scout-card-head">
-            <strong>📌 감독 보호 요구 베테랑/친분 선수</strong>
+            <strong>감독 보호 요구 베테랑/친분 선수</strong>
             <span class="scout-rank-tag tnum">${ev.veteranAge}세 · OVR ${ev.veteranOvr}</span>
           </div>
           <div class="tiny" style="margin-top:6px">
@@ -4157,7 +4277,7 @@
 
         <div class="scout-card" style="border-left:4px solid var(--bad)">
           <div class="scout-card-head">
-            <strong>⚠️ 보호명단 탈락(유출) 위험 핵심 유망주</strong>
+            <strong>보호명단 탈락(유출) 위험 핵심 유망주</strong>
             <span class="scout-rank-tag text-bad tnum">포텐셜 ${ev.atRiskProspectPot}</span>
           </div>
           <div class="tiny" style="margin-top:6px">
@@ -4169,10 +4289,10 @@
 
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button type="button" class="btn-sm primary" data-resolve-mandate="ACCEPT" data-mandate-mode="${esc(ev.mode)}">
-          ✅ [수용] 감독 요구 수용 (${esc(ev.veteranPlayerName)} 보호 고정 · 감독신임도 +15 · 팀사기 +5 · 유망주 노출 리스크)
+          [수용] 감독 요구 수용 (${esc(ev.veteranPlayerName)} 보호 고정 · 감독신임도 +15 · 팀사기 +5 · 유망주 노출 리스크)
         </button>
         <button type="button" class="btn-sm text-bad" data-resolve-mandate="REJECT" data-mandate-mode="${esc(ev.mode)}">
-          ❌ [거부] 프런트 원칙 고수 (유망주 ${esc(ev.atRiskProspectName)} 정상 보호 · 감독신임도 -25 · 언론불만 유출확률 +35%)
+          [거부] 프런트 원칙 고수 (유망주 ${esc(ev.atRiskProspectName)} 정상 보호 · 감독신임도 -25 · 언론불만 유출확률 +35%)
         </button>
       </div>
     `;
@@ -4186,7 +4306,7 @@
     const userTeam = ctx.getUserTeam();
     const st = mc.ensureManagerConflictState(userTeam);
 
-    $("gmModalTitle").textContent = `🚨 ${vetoEvent.title}`;
+    $("gmModalTitle").textContent = `${vetoEvent.title}`;
     $("gmModalBody").innerHTML = `
       <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--bad)">
         <div>
@@ -4208,10 +4328,10 @@
 
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button type="button" class="btn-sm primary" data-resolve-trade-veto="WITHDRAW_TRADE">
-          🤝 [거부권 수용 · 트레이드 철회] 감독 의견 존중 (감독 신임도 +10)
+          [거부권 수용 · 트레이드 철회] 감독 의견 존중 (감독 신임도 +10)
         </button>
         <button type="button" class="btn-sm text-bad" data-resolve-trade-veto="FORCE_TRADE">
-          ⚡ [단장 직권 트레이드 강행] 감독 거부권 기각 및 즉시 트레이드 체결 (감독 신임도 -25 · 언론유출 확률 +35%)
+          [단장 직권 트레이드 강행] 감독 거부권 기각 및 즉시 트레이드 체결 (감독 신임도 -25 · 언론유출 확률 +35%)
         </button>
       </div>
     `;
@@ -4239,9 +4359,9 @@
     const curParkPreset = userTeam.parkPresetKey || "NEUTRAL";
 
     const facIcons = {
-      rehabCenter: "🏥",
-      biomechLab: "🔬",
-      scoutHq: "📡"
+      rehabCenter: "",
+      biomechLab: "",
+      scoutHq: ""
     };
 
     const facCardsHtml = ["rehabCenter", "biomechLab", "scoutHq"]
@@ -4255,7 +4375,7 @@
           <div class="panel" style="margin-bottom:0">
             <div class="panel-head">
               <div>
-                <h3 class="panel-title" style="font-size:15.5px">${facIcons[fKey] || "🏗️"} ${esc(spec.name)}</h3>
+                <h3 class="panel-title" style="font-size:15.5px">${facIcons[fKey] || ""} ${esc(spec.name)}</h3>
                 <span class="scout-rank-tag tnum" style="margin-top:4px;display:inline-block">현재 Lv.${curLv} / 5</span>
               </div>
             </div>
@@ -4284,7 +4404,7 @@
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title">🌱 2군 퓨처스 &amp; 육성군 유망주 맞춤형 집중 훈련 배정 (${futuresPlayers.length}명)</h3>
+              <h3 class="panel-title">2군 퓨처스 &amp; 육성군 유망주 맞춤형 집중 훈련 배정 (${futuresPlayers.length}명)</h3>
               <div class="tiny">2군 바이오메카닉스 랩과 연동되어 매주 퓨처스리그 경기 후 지정된 능력치가 가속 성장합니다.</div>
             </div>
             <button type="button" class="btn-sm primary" data-auto-futures-train="1">취약 능력치 자동 일괄 배정</button>
@@ -4339,7 +4459,7 @@
           <div class="panel" style="margin-bottom:0">
             <div class="panel-head">
               <div>
-                <h3 class="panel-title" style="font-size:15px">🪖 상무 피닉스 야구단 병역 보류 시스템 (${servingList.length} / 4명 복무 중)</h3>
+                <h3 class="panel-title" style="font-size:15px">상무 피닉스 야구단 병역 보류 시스템 (${servingList.length} / 4명 복무 중)</h3>
                 <div class="tiny">만 19~26세 미필 선수 18개월 복무 성장 · 정원/페이롤 제외</div>
               </div>
             </div>
@@ -4370,7 +4490,7 @@
           <div class="panel" style="margin-bottom:0">
             <div class="panel-head">
               <div>
-                <h3 class="panel-title" style="font-size:15px">🏟️ 홈구장 외야 펜스 리모델링 (파크팩터 전략 조정)</h3>
+                <h3 class="panel-title" style="font-size:15px">홈구장 외야 펜스 리모델링 (파크팩터 전략 조정)</h3>
                 <div class="tiny">우리 구단 팀 컬러(거포 군단 vs 마운드/수비 중심)에 맞춰 외야 펜스 거리와 높이를 개조합니다.</div>
               </div>
             </div>
@@ -4416,7 +4536,7 @@
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h2 class="panel-title">👔 현장 감독 성향 및 프런트 갈등 관리 (${esc(mc.managerName)} 감독 · ${esc(curArch.label)})</h2>
+              <h2 class="panel-title">현장 감독 성향 및 프런트 갈등 관리 (${esc(mc.managerName)} 감독 · ${esc(curArch.label)})</h2>
               <div class="tiny">감독 신임도: <strong>${mc.managerTrust} / 100</strong> · 갈등 게이지: <strong>${mc.conflictGauge} / 100</strong> · 위기 단계: <strong>${mc.crisisStage}단계</strong> · 언론 여론 지수: <strong>${rgm.mediaSentiment} / 100</strong></div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4429,8 +4549,8 @@
                   .join("")}
               </select>
               <button type="button" class="btn-xs ghost" data-rgm-set-archetype="1">성향 변경 적용</button>
-              <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">🚨 기용 거부(벤치 방치) 면담 모달</button>
-              <button type="button" class="btn-xs" data-open-protection-mandate="FA_20">📋 보호선수 감독 외압 면담</button>
+              <button type="button" class="btn-xs primary" data-rgm-open-usage-refusal="1">기용 거부(벤치 방치) 면담 모달</button>
+              <button type="button" class="btn-xs" data-open-protection-mandate="FA_20">보호선수 감독 외압 면담</button>
             </div>
           </div>
 
@@ -4441,29 +4561,29 @@
 
           <div class="grid-2col">
             <div class="report-box" style="border-left:4px solid var(--bad)">
-              <strong>🎙️ 과도한 감봉 시 선수단 집단 항명 &amp; 미디어 인터뷰 여론전</strong>
+              <strong>과도한 감봉 시 선수단 집단 항명 &amp; 미디어 인터뷰 여론전</strong>
               <div class="tiny muted" style="margin:6px 0 10px">
                 고강도 연봉 삭감 시 선수단 집단 항명(팀 컨디션 저하 · 팬심 하락)이 발생하며, 단장의 공식 미디어 인터뷰 스탠스에 따라 구단주 신임도와 언론 여론이 결정됩니다.
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" class="btn-xs text-bad" data-rgm-trigger-rebellion="1">🔥 감봉 집단 항명 발생 시뮬레이션</button>
-                <button type="button" class="btn-xs ghost" data-rgm-media-response="HARDLINE_PRINCIPLE">🎙️ 강경 원칙론 인터뷰 (구단주+10 / 여론-18)</button>
-                <button type="button" class="btn-xs primary" data-rgm-media-response="CONCILIATORY_BONUS">🤝 유화책·보너스 신설 (여론+22 / 사기+20)</button>
-                <button type="button" class="btn-xs" data-rgm-media-response="TRANSPARENT_REBUILD_PR">📊 리빌딩 재투자 브리핑 (구단주+6 / 여론+16)</button>
+                <button type="button" class="btn-xs text-bad" data-rgm-trigger-rebellion="1">감봉 집단 항명 발생 시뮬레이션</button>
+                <button type="button" class="btn-xs ghost" data-rgm-media-response="HARDLINE_PRINCIPLE">강경 원칙론 인터뷰 (구단주+10 / 여론-18)</button>
+                <button type="button" class="btn-xs primary" data-rgm-media-response="CONCILIATORY_BONUS">유화책·보너스 신설 (여론+22 / 사기+20)</button>
+                <button type="button" class="btn-xs" data-rgm-media-response="TRANSPARENT_REBUILD_PR">리빌딩 재투자 브리핑 (구단주+6 / 여론+16)</button>
               </div>
             </div>
 
             <div class="report-box" style="border-left:4px solid var(--est)">
-              <strong>⚖️ BATNA 다안건 연봉 협상 &amp; 1월 말 연봉조정위원회</strong>
+              <strong>BATNA 다안건 연봉 협상 &amp; 1월 말 연봉조정위원회</strong>
               <div class="tiny muted" style="margin:6px 0 10px">
                 보장 출전 타석/이닝 + 성과 옵션 + 비FA 다년 전환 패키지 협상 또는 연봉조정위원회 회부를 결단합니다.
               </div>
               <div style="display:flex;gap:6px;flex-wrap:wrap">
                 <button type="button" class="btn-xs primary" data-rgm-multi-issue-neg="${topStarForSal ? topStarForSal.id : ""}">
-                  🤝 핵심 선수 다안건 패키지 협상 타결
+                  핵심 선수 다안건 패키지 협상 타결
                 </button>
                 <button type="button" class="btn-xs text-bad" data-rgm-run-arbitration="${topStarForSal ? topStarForSal.id : ""}">
-                  ⚖️ 연봉조정위원회 판결 실행
+                  연봉조정위원회 판결 실행
                 </button>
               </div>
             </div>
@@ -4473,7 +4593,7 @@
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title">💬 선수단 사기(Morale) 관리 &amp; 트레이드 요구 선수 1:1 단장 면담 (${moraleIssues.length}명)</h3>
+              <h3 class="panel-title">선수단 사기(Morale) 관리 &amp; 트레이드 요구 선수 1:1 단장 면담 (${moraleIssues.length}명)</h3>
               <div class="tiny">출전 기회 부족이나 2군 장기 체류로 불만이 쌓인 선수와 1:1 면담(격려금 지급) 또는 1군 콜업 약속을 진행합니다.</div>
             </div>
           </div>
@@ -4514,7 +4634,7 @@
     if (!GM.Balance) return;
     const diff = (ctx && ctx.difficulty) || "NORMAL";
     const team = (ctx && ctx.userTeamId) || "KIA";
-    $("gmModalTitle").textContent = "📊 8시즌 밸런스 진단 (실제 엔진)";
+    $("gmModalTitle").textContent = "8시즌 밸런스 진단 (실제 엔진)";
     $("gmModalBody").innerHTML = `
       <div class="weekly-summary-banner" style="margin-bottom:12px">
         새 리그를 만들어 실제 경기 엔진으로 8시즌을 진행하고 전력 평준화·재정·선수 성장을 측정합니다.
@@ -4661,7 +4781,7 @@
           ${events.length ? `<div class="tiny" style="margin-top:6px"><strong>최근 계약 이벤트:</strong> ${events.map((e) => `${e.year} ${esc(e.playerName)}: ${e.events.map(esc).join(", ")}`).join(" · ")}</div>` : ""}
         </div>
         <div>
-          <strong class="tiny">🏅 프랜차이즈 예외 (KBO판 버드 룰 · 1명)</strong>
+          <strong class="tiny">프랜차이즈 예외 (KBO판 버드 룰 · 1명)</strong>
           <div class="tiny muted">한 구단에서 ${NF.FRANCHISE_MIN_SEASONS}시즌 이상 뛴 선수 1명은 경쟁균형세 산정 시 연봉의 50%만 반영됩니다.</div>
           <select id="franchiseSelect" class="gm-select" style="margin-top:6px;max-width:100%">
             <option value="">— 지정 안 함 —</option>
@@ -4671,6 +4791,45 @@
           </select>
           <button type="button" class="btn-xs" data-set-franchise="1">지정 저장</button>
         </div>
+      </div>
+      ${renderReleasedMarketHtml(ctx, userTeam)}`;
+  }
+
+  // 자유계약(방출) 선수 시장 — 비FA 계약 중 유일하게 계약금이 허용되는 예외
+  function renderReleasedMarketHtml(ctx, userTeam) {
+    const NF = GM.NonFA;
+    if (!NF || typeof NF.getReleasedMarket !== "function") return "";
+    const market = NF.getReleasedMarket(ctx).slice(0, 12);
+    return `
+      <div style="margin-top:14px">
+        <strong class="tiny">자유계약(방출) 선수 영입 — 계약금 허용 예외</strong>
+        <div class="tiny muted">다른 구단에서 방출된 국내 선수는 다음 해 2월 1일까지 1년 계약으로 영입할 수 있고, 비FA 계약과 달리 계약금(요구액의 50%까지)을 줄 수 있습니다. 선수는 계약금+연봉 합계를 봅니다. 능력치는 스카우트 추정치입니다.</div>
+        ${
+          market.length
+            ? `<div class="table-wrap"><table class="gm-table compact" style="margin-top:6px"><thead><tr><th>선수</th><th>나이</th><th>OVR</th><th>전 소속</th><th>요구 총액</th><th>계약금</th><th>연봉</th><th></th></tr></thead><tbody>
+              ${market
+                .map((e) => {
+                  const p = e.player;
+                  const se = p.scoutError || {};
+                  const ovr = se.ovrMin != null ? fmtRange(`${se.ovrMin}~${se.ovrMax}`) : String(p.getTrueOvr());
+                  const former = ctx.getTeam(e.formerTeamId);
+                  const own = e.formerTeamId === userTeam.id;
+                  const half = Math.round(e.demandTotal * 0.5 / 100) * 100;
+                  return `<tr>
+                    <td><strong>${esc(p.name)}</strong> <span class="pos-code">${esc(p.pos)}</span></td>
+                    <td class="tnum">${p.age}</td>
+                    <td class="tnum est-val">${esc(ovr)}</td>
+                    <td>${esc(former ? former.name : "-")}</td>
+                    <td class="tnum">${fmtMoney(e.demandTotal)}</td>
+                    <td><input type="number" class="num-input-xs" id="relBonus_${esc(p.id)}" min="0" max="${half}" step="100" value="${half}" aria-label="${esc(p.name)} 계약금(만원)"></td>
+                    <td><input type="number" class="num-input-xs" id="relSalary_${esc(p.id)}" min="3000" step="100" value="${Math.max(3000, e.demandTotal - half)}" aria-label="${esc(p.name)} 연봉(만원)"></td>
+                    <td>${own ? `<span class="tiny muted">우리가 방출</span>` : `<button type="button" class="btn-xs" data-sign-released="${esc(p.id)}">영입 제안</button>`}</td>
+                  </tr>`;
+                })
+                .join("")}
+              </tbody></table></div>`
+            : `<div class="empty-box" style="margin-top:6px">지금 시장에 나온 자유계약 선수가 없습니다. (각 구단이 선수를 방출하면 여기에 나타납니다)</div>`
+        }
       </div>`;
   }
 
@@ -4681,7 +4840,7 @@
     const player = team.getAllPlayers().find((p) => p.id === playerId);
     if (!NF || !player) return;
     const d = NF.computeDemand(ctx, team, player);
-    $("gmModalTitle").textContent = `✍️ 비FA 다년계약 협상 — ${player.name} (${player.pos}, ${player.age}세)`;
+    $("gmModalTitle").textContent = `비FA 다년계약 협상 — ${player.name} (${player.pos}, ${player.age}세)`;
     $("gmModalBody").innerHTML = `
       <div class="weekly-summary-banner" style="margin-bottom:10px">
         에이전트 요구: <strong>${d.desiredYears}년 · 연평균 ${fmtMoney(d.aav)}</strong> (FA 시장가 ${fmtMoney(d.marketAAV)} 기준) · 옵션 허용 ${Math.round(d.maxOptionRatio * 100)}%까지
@@ -4755,7 +4914,7 @@
           ? GM.FA.calculateTargetValuation({ age: 35, career: [{ war: 5.5 }] }, "C")
           : { totalValuation: 150000, years: 2 };
 
-      $("gmModalTitle").textContent = "✅ 1,000회 자가 진단 (Wiring Audit) 결과 리포트";
+      $("gmModalTitle").textContent = "1,000회 자가 진단 (Wiring Audit) 결과 리포트";
       $("gmModalBody").innerHTML = `
         <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--good)">
           <strong class="text-good">1,000회 자가 진단 테스트 완료 (ALL PASS)</strong><br/>
@@ -4818,6 +4977,7 @@
     if (STATE.activeTab === "offseason" && STATE.offseasonSubTab === "front5") applyFront5Focus();
     renderAreaNav();
     stripTitleDecor($(`tab_${STATE.activeTab}`));
+    alignNumericColumns($(`tab_${STATE.activeTab}`));
   }
 
   function advanceDaysUI(days = 1) {
@@ -4888,6 +5048,7 @@
           if (closeBtn) closeBtn.focus({ preventScroll: true });
         }
         stripTitleDecor(backdrop);
+        alignNumericColumns(backdrop);
       } else if (modalReturnFocus) {
         const target = modalReturnFocus;
         modalReturnFocus = null;
@@ -5107,6 +5268,11 @@
     const btnExportHtml = $("btnExportStandaloneHtml");
     if (btnExportHtml) {
       btnExportHtml.addEventListener("click", async () => {
+        // 이미 모듈이 모두 인라인된 단일 파일로 실행 중이면 병합할 것이 없다
+        if (!document.querySelector('script[src^="gm-"]')) {
+          showToast("지금 실행 중인 파일이 이미 단일 HTML 파일입니다. 이 파일을 그대로 보관·공유하면 됩니다.", "info");
+          return;
+        }
         try {
           btnExportHtml.disabled = true;
           btnExportHtml.textContent = "단일 index.html 병합 중...";
@@ -5149,7 +5315,7 @@
           showToast("단일 파일 생성 중 오류가 발생했습니다.", "bad");
         } finally {
           btnExportHtml.disabled = false;
-          btnExportHtml.textContent = "단일 index.html 다운로드 (Netlify용)";
+          btnExportHtml.textContent = "단일 HTML 파일 내려받기";
         }
       });
     }
@@ -5597,6 +5763,9 @@
 
     // 문서 위임 클릭 핸들러 (동적 생성 버튼들 처리)
     document.addEventListener("click", async (e) => {
+      document.querySelectorAll("details.row-menu[open]").forEach((d) => {
+        if (!d.contains(e.target)) d.open = false;
+      });
       // 하위 메뉴
       const subLink = e.target.closest("[data-area-sub]");
       if (subLink) {
@@ -5647,6 +5816,18 @@
           showToast(`${res.player.name} 선수를 ${targetStatus}(으)로 이동했습니다.`, "good");
           renderAll();
         }
+        return;
+      }
+
+      const relSignBtn = e.target.closest("[data-sign-released]");
+      if (relSignBtn && GM.NonFA) {
+        const pid = relSignBtn.dataset.signReleased;
+        const res = GM.NonFA.signReleasedPlayer(STATE.ctx, STATE.ctx.userTeamId, pid, {
+          bonus: Number(($(`relBonus_${pid}`) || {}).value || 0),
+          salary: Number(($(`relSalary_${pid}`) || {}).value || 0)
+        });
+        showToast(res.ok ? res.summary : res.reason, res.ok ? "good" : "bad");
+        if (res.ok) renderAll();
         return;
       }
 
@@ -5803,8 +5984,8 @@
           STATE.tradeTargetPlayerIds = [];
           showToast(
             nextMode === "FOREIGN"
-              ? "🌍 외국인끼리 트레이드 트랙으로 전환되었습니다. (외국인 선수만 상호 교환 가능)"
-              : "🇰🇷 내국인끼리 트레이드 트랙으로 전환되었습니다. (내국인 선수만 상호 교환 가능)",
+              ? "외국인끼리 트레이드 트랙으로 전환되었습니다. (외국인 선수만 상호 교환 가능)"
+              : "내국인끼리 트레이드 트랙으로 전환되었습니다. (내국인 선수만 상호 교환 가능)",
             "info"
           );
           renderTradeSubPanel();
@@ -5865,18 +6046,18 @@
             context: STATE.ctx
           });
 
-          $("gmModalTitle").textContent = `🤝 [실전 FA 협상 테이블] ${p.name} (${p.pos}, ${p.age}세 · ${prof.faGrade}등급 · ${isHomeFA ? "원소속 우선협상 대상" : `${p.formerTeamName || p.formerTeamId} 출신 외부 FA`})`;
+          $("gmModalTitle").textContent = `[실전 FA 협상 테이블] ${p.name} (${p.pos}, ${p.age}세 · ${prof.faGrade}등급 · ${isHomeFA ? "원소속 우선협상 대상" : `${p.formerTeamName || p.formerTeamId} 출신 외부 FA`})`;
           $("gmModalBody").innerHTML = `
             <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid ${isPriorityRestricted ? "var(--bad)" : "var(--good)"}">
               <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
                 <div>
-                  <strong>현재 시장 단계: ${phase === "PRIORITY" ? "🔒 1단계 원소속구단 우선협상 기간" : "🔓 2단계 전 구단 완전 개방(Open Market)"}</strong>
+                  <strong>현재 시장 단계: ${phase === "PRIORITY" ? "1단계 원소속구단 우선협상 기간" : "2단계 전 구단 완전 개방(Open Market)"}</strong>
                   <span class="sep">·</span>
                   <span class="tnum">협상 라운드: <strong>${negState.round} / ${negState.maxRounds}차</strong> (에이전트 인내심: <strong>${negState.patience}%</strong>)</span>
                 </div>
                 ${
                   isPriorityRestricted
-                    ? `<button type="button" class="btn-xs primary" data-fa-unlock-and-reopen="${p.id}">🔓 지금 전 구단 자유협상(Open Market)으로 전환하고 협상 개시</button>`
+                    ? `<button type="button" class="btn-xs primary" data-fa-unlock-and-reopen="${p.id}">지금 전 구단 자유협상(Open Market)으로 전환하고 협상 개시</button>`
                     : ""
                 }
               </div>
@@ -5891,8 +6072,8 @@
               <div class="tiny ${isHomeFA ? "text-good" : "text-bad"}" style="margin-top:3px">
                 ${
                   isHomeFA
-                    ? `🏠 [원소속구단 프리미엄] 보상선수·보상금 전면 면제 + 우선협상 충성도 보너스(${phase === "PRIORITY" ? "+7%" : "+3%"}) 적용!`
-                    : `⚠️ [외부 영입 보상 페널티] ${fmtMoney(prof.Penalty_comp || 0)} (${esc(prof.gradeReason || prof.rule.desc)})`
+                    ? `[원소속구단 프리미엄] 보상선수·보상금 전면 면제 + 우선협상 충성도 보너스(${phase === "PRIORITY" ? "+7%" : "+3%"}) 적용!`
+                    : `[외부 영입 보상 페널티] ${fmtMoney(prof.Penalty_comp || 0)} (${esc(prof.gradeReason || prof.rule.desc)})`
                 }
               </div>
             </div>
@@ -5922,24 +6103,24 @@
                 ${
                   negState.lastCounterOffer
                     ? `<div class="tiny" style="margin-top:6px;padding:6px 8px;background:var(--warn-soft);border-radius:6px;color:var(--warn)">
-                        <strong>💬 직전 에이전트 역제안 조건:</strong> ${negState.lastCounterOffer.Y}년 총액 <strong>${fmtMoney(negState.lastCounterOffer.totalManwon)}</strong> (계약금 ${fmtMoney(negState.lastCounterOffer.DP)} · 연봉총액 ${fmtMoney(negState.lastCounterOffer.BS)} · 옵션 ${fmtMoney(negState.lastCounterOffer.Opt)})
+                        <strong>직전 에이전트 역제안 조건:</strong> ${negState.lastCounterOffer.Y}년 총액 <strong>${fmtMoney(negState.lastCounterOffer.totalManwon)}</strong> (계약금 ${fmtMoney(negState.lastCounterOffer.DP)} · 연봉총액 ${fmtMoney(negState.lastCounterOffer.BS)} · 옵션 ${fmtMoney(negState.lastCounterOffer.Opt)})
                        </div>`
                     : ""
                 }
               </div>
               <div class="scout-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px">
-                <button type="button" class="btn-sm ghost" data-fa-logistic-preview="${p.id}">🔄 수용 확률 미리보기</button>
+                <button type="button" class="btn-sm ghost" data-fa-logistic-preview="${p.id}">수용 확률 미리보기</button>
                 <button type="button" class="btn-sm primary" data-fa-direct-negotiate="${p.id}" ${isPriorityRestricted || negState.status === "WALKED_AWAY" ? "disabled" : ""}>
-                  🤝 ${negState.round + 1}차 실전 오퍼 제시 (즉시 협상 담판)
+                  ${negState.round + 1}차 실전 오퍼 제시 (즉시 협상 담판)
                 </button>
                 ${
                   negState.lastCounterOffer && negState.status !== "WALKED_AWAY"
                     ? `<button type="button" class="btn-sm primary" style="background:var(--good)" data-fa-accept-counter="${p.id}">
-                        ⚡ 에이전트 역제안(${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}) 즉시 수용·타결
+                        에이전트 역제안(${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}) 즉시 수용·타결
                        </button>`
                     : ""
                 }
-                <button type="button" class="btn-sm ghost" data-fa-logistic-submit="${p.id}">📥 일괄 입찰서만 등록</button>
+                <button type="button" class="btn-sm ghost" data-fa-logistic-submit="${p.id}">일괄 입찰서만 등록</button>
               </div>
             </div>
           `;
@@ -6885,7 +7066,7 @@
           const res = rgmMod.checkPlayerUsageRefusal(STATE.ctx, STATE.ctx.userTeamId, { forceTrigger: true });
           if (res && res.ok && res.modalEvent) {
             const ev = res.modalEvent;
-            $("gmModalTitle").textContent = `🚨 ${ev.title}`;
+            $("gmModalTitle").textContent = `${ev.title}`;
             $("gmModalBody").innerHTML = `
               <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--bad)">
                 <div><strong>감독 아키타입:</strong> ${esc(ev.managerArchetypeLabel)} · <strong>벤치 방치 대상:</strong> ${esc(ev.playerName)}(${esc(ev.pos)}, ${ev.age}세, OVR ${ev.ovr} / 포텐 ${ev.potential})</div>
@@ -6893,10 +7074,10 @@
               </div>
               <div style="display:flex;gap:10px;flex-wrap:wrap">
                 <button type="button" class="btn-sm text-bad" data-rgm-resolve-usage="FORCE_PLAY_WARNING" data-rgm-player="${esc(ev.playerId)}">
-                  ⚡ ${esc(ev.dilemmaOptions.ignoreManagerAndForcePlay)}
+                  ${esc(ev.dilemmaOptions.ignoreManagerAndForcePlay)}
                 </button>
                 <button type="button" class="btn-sm primary" data-rgm-resolve-usage="ACCEPT_BENCHING" data-rgm-player="${esc(ev.playerId)}">
-                  🤝 ${esc(ev.dilemmaOptions.acceptManagerBenching)}
+                  ${esc(ev.dilemmaOptions.acceptManagerBenching)}
                 </button>
               </div>
             `;

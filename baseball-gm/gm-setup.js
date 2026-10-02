@@ -1614,6 +1614,12 @@
 
     target.teamId = null;
     target.status = "RELEASED";
+    // 자유계약 선수 시장: 방출된 국내 선수는 다음 해 2월 1일까지 다른 구단과 계약할 수 있다
+    if (!Array.isArray(context.releasedPool)) context.releasedPool = [];
+    target.formerTeamId = team.id;
+    target.releasedDate = context.currentDate;
+    context.releasedPool.push(target);
+    if (context.releasedPool.length > 80) context.releasedPool.splice(0, context.releasedPool.length - 80);
     if (team.id === context.userTeamId) {
       context.releasedCountThisYear = (Number(context.releasedCountThisYear) || 0) + 1;
       context.totalSavedBudgetThisYear = (Number(context.totalSavedBudgetThisYear) || 0) + savedBudgetManwon;
@@ -2337,6 +2343,8 @@
     let matchesSimulated = 0;
 
     for (let dIdx = 0; dIdx < stepDays; dIdx++) {
+      // 시즌 회고용 일일 기록: 트레이드 선수 누적 WAR(리그를 떠나도 보존) · 구단주 증액 이후 최저 여유 예산
+      if (gm && gm.Retro && typeof gm.Retro.refreshDaily === "function") gm.Retro.refreshDaily(context);
       const prevDateObj = parseDateISO(context.currentDate || `${context.currentYear}-01-01`);
       let nextDateObj = new Date(prevDateObj.getTime() + 86400000);
       // 윤년(2월 29일)은 3월 1일로 정규화하여 매년 정확히 365일(5년 = 1,825일) 캘린더 유지
@@ -2698,6 +2706,10 @@
             const signedCount = faRes && Number.isFinite(faRes.totalSigned) ? faRes.totalSigned : null;
             stoveEvent("STOVE_FA_MARKET_CLOSED", `[1월 15일 FA 시장 마감] 미계약 FA ${openFAs.length}명을 AI 구단 입찰로 정리했습니다${signedCount != null ? ` (계약 ${signedCount}건)` : ""}.`);
           }
+        }
+        // 2월 1일: 지난해 방출된 자유계약 선수 중 계약하지 못한 선수는 시장에서 빠진다
+        if (month === 2 && dayOfMonth === 1 && Array.isArray(context.releasedPool)) {
+          context.releasedPool = context.releasedPool.filter((p) => String(p.releasedDate || "") >= `${context.currentYear}-01-01`);
         }
         if (month === 1 && dayOfMonth === 31) {
           if (!off.isStoveStepDone(context, "salary")) {

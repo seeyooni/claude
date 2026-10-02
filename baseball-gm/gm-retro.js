@@ -37,6 +37,7 @@
     FOREIGN: "외국인 선수",
     DRAFT: "신인 드래프트",
     SECONDARY_DRAFT: "2차 드래프트",
+    FREE_AGENT_RELEASED: "자유계약(방출) 영입",
     OTHER: "기타 합류"
   };
 
@@ -110,17 +111,63 @@
     return total;
   }
 
+  // 트레이드 장부: 받은 선수는 우리 구단에서, 보낸 선수는 다른 구단에서 쌓은 WAR
+  const ledgerSides = (userTeamId) => ({
+    received: (tid) => tid === userTeamId,
+    sent: (tid) => Boolean(tid) && tid !== userTeamId
+  });
+
+  /**
+   * 매일 호출: 트레이드 선수의 누적 WAR 를 장부에 적어 둔다.
+   * 선수가 방출·은퇴·해외 진출로 리그를 떠나면 더 이상 찾을 수 없으므로 마지막 값이 그대로 남는다.
+   * (예전에는 떠난 선수의 기록이 0으로 사라져 '보낸 선수 손실'이 적게 잡혔다)
+   * 같은 날 구단주 증액 이후 최저 여유 예산도 기록한다 (증액분이 실제로 필요했는지 판단용).
+   */
+  function refreshDaily(context) {
+    if (!context || typeof context.getUserTeam !== "function") return;
+    const userTeamId = context.userTeamId;
+    const year = context.currentYear;
+    const sides = ledgerSides(userTeamId);
+    (context.tradeLedger || []).forEach((t) => {
+      if (!t.warBook) t.warBook = {};
+      [["received", t.receivedIds], ["sent", t.sentIds]].forEach(([side, ids]) => {
+        (ids || []).forEach((id) => {
+          const found = findPlayerAnywhere(context, id);
+          if (!found) return;
+          t.warBook[id] = { war: r1(warSince(found.player, t.year, year, sides[side])), date: context.currentDate };
+        });
+      });
+    });
+
+    const team = context.getUserTeam();
+    if (team && Array.isArray(context.ownerSupportLog)) {
+      const room = team.budget - team.getTotalPayroll();
+      context.ownerSupportLog.forEach((g) => {
+        if (g.year !== year) return;
+        g.minRoomSince = typeof g.minRoomSince === "number" ? Math.min(g.minRoomSince, room) : room;
+      });
+    }
+  }
+
   function buildTradeLedgerSummary(context, userTeamId) {
     const year = context.currentYear;
+    const sides = ledgerSides(userTeamId);
     return (context.tradeLedger || []).map((t) => {
-      const side = (ids, filter) =>
+      let departed = 0;
+      const side = (ids, key) =>
         ids.reduce((s, id) => {
           const found = findPlayerAnywhere(context, id);
-          return s + (found ? warSince(found.player, t.year, year, filter) : 0);
+          if (found) return s + warSince(found.player, t.year, year, sides[key]);
+          const booked = t.warBook && t.warBook[id];
+          if (booked) {
+            departed += 1;
+            return s + (Number(booked.war) || 0);
+          }
+          return s;
         }, 0);
-      const gained = r1(side(t.receivedIds, (tid) => tid === userTeamId));
-      const lost = r1(side(t.sentIds, (tid) => tid && tid !== userTeamId));
-      return { ...t, gainedWar: gained, lostWar: lost, netWar: r1(gained - lost) };
+      const gained = r1(side(t.receivedIds, "received"));
+      const lost = r1(side(t.sentIds, "sent"));
+      return { ...t, gainedWar: gained, lostWar: lost, netWar: r1(gained - lost), departedCount: departed };
     });
   }
 
@@ -147,27 +194,43 @@
     return Object.values(classes).sort((a, b) => b.year - a.year);
   }
 
+  /**
+   * 구단주 증액 효과 — '증액이 없었다면 불가능했던 지출'만 증액 덕분으로 본다.
+   *   필요했던 증액 = 증액액 − (증액 이후 최저 여유 예산), 0~증액액 범위
+   *     → 증액이 없었어도 여유 예산이 한 번도 마이너스가 되지 않았다면 효과 0 (같은 영입이 가능했음)
+   *   증액 이후 FA·트레이드·외국인 영입 선수의 WAR × (필요했던 증액 ÷ 그 선수들 연봉 합, 최대 1)
+   */
   function buildOwnerSupportSummary(context, team) {
     const year = context.currentYear;
     const grants = (context.ownerSupportLog || []).filter((g) => g.year === year);
     const allTimeManwon = (context.ownerSupportLog || []).reduce((s, g) => s + (g.amountManwon || 0), 0);
     if (!grants.length) return { grantsThisYear: 0, amountManwon: 0, allTimeManwon, acquiredAfter: [], acquiredWar: 0, warPerEok: null };
     const firstDate = grants.map((g) => g.date).sort()[0];
-    const spendRoutes = new Set(["FA", "TRADE", "FOREIGN", "FA_COMPENSATION"]);
-    const acquiredAfter = teamPlayers(team)
+    const spendRoutes = new Set(["FA", "TRADE", "FOREIGN", "FA_COMPENSATION", "FREE_AGENT_RELEASED"]);
+    const acquired = teamPlayers(team)
       .filter((p) => p.acquiredVia && spendRoutes.has(p.acquiredVia.type) && String(p.acquiredVia.date || "") >= firstDate)
-      .map((p) => ({ name: p.name, pos: p.pos, route: p.acquiredVia.type, war: r1(warOf(p)) }))
+      .map((p) => ({ name: p.name, pos: p.pos, route: p.acquiredVia.type, war: r1(warOf(p)), salary: p.salary || 0 }))
       .sort((a, b) => b.war - a.war);
     const amountManwon = grants.reduce((s, g) => s + (g.amountManwon || 0), 0);
-    const acquiredWar = r1(acquiredAfter.reduce((s, a) => s + a.war, 0));
+    const currentRoom = team.budget - team.getTotalPayroll();
+    const minRoom = grants.reduce((m, g) => Math.min(m, typeof g.minRoomSince === "number" ? g.minRoomSince : currentRoom), currentRoom);
+    const neededManwon = Math.max(0, Math.min(amountManwon, amountManwon - minRoom));
+    const acquiredSalary = acquired.reduce((s, a) => s + a.salary, 0);
+    const share = neededManwon > 0 && acquiredSalary > 0 ? Math.min(1, neededManwon / acquiredSalary) : 0;
+    const rawWar = acquired.reduce((s, a) => s + a.war, 0);
+    const acquiredWar = r1(rawWar * share);
     return {
       grantsThisYear: grants.length,
       amountManwon,
       allTimeManwon,
       firstGrantDate: firstDate,
-      acquiredAfter: acquiredAfter.slice(0, 6),
+      minRoomManwon: minRoom,
+      neededManwon,
+      attributionShare: Math.round(share * 100),
+      rawAcquiredWar: r1(rawWar),
+      acquiredAfter: acquired.slice(0, 6),
       acquiredWar,
-      warPerEok: amountManwon > 0 ? r1(acquiredWar / (amountManwon / 10000)) : null
+      warPerEok: neededManwon > 0 ? r1(acquiredWar / (neededManwon / 10000)) : null
     };
   }
 
@@ -176,6 +239,8 @@
       const p = teamPlayers(t).find((x) => x.id === playerId);
       if (p) return { player: p, team: t };
     }
+    const fa = (context.faPool || []).find((x) => x.id === playerId);
+    if (fa) return { player: fa, team: null };
     return null;
   }
 
@@ -302,6 +367,7 @@
   return {
     ROUTE_LABEL,
     recordTrade,
+    refreshDaily,
     warSince,
     takeRosterSnapshot,
     buildSeasonRetrospective

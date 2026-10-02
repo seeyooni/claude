@@ -145,6 +145,8 @@
         instance[key] = rawContext[key];
       }
     });
+    // 자유계약(방출) 선수 시장도 Player 인스턴스로 복원
+    if (Array.isArray(rawContext.releasedPool)) instance.releasedPool = rawContext.releasedPool.map(hydratePlayer);
 
     return instance;
   }

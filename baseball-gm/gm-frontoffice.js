@@ -94,8 +94,47 @@
     return items.sort((a, b) => a.dDay - b.dDay || a.title.localeCompare(b.title));
   }
 
+  /**
+   * 스토브리그 단계: 연봉 재계약 → FA 우선협상 → FA 자유협상 → 외국인 계약 → 스프링캠프
+   * 반환: [{ key, label, start, end, status: 'DONE'|'OPEN'|'UPCOMING'|'CLOSED', dDay, target }]
+   *   시즌 중(3/22~9/30)에는 다가오는 겨울 기준으로 '예정'을 보여준다.
+   */
+  function getStovePhases(context) {
+    if (!context) return [];
+    const g = gm();
+    const off = g.Offseason;
+    const today = context.currentDate;
+    const y = context.currentYear;
+    const month = Number(String(today).slice(5, 7));
+    const inSeason = (month > 3 && month < 10) || (month === 3 && String(today).slice(8) >= "22");
+    const K = inSeason ? y + 1 : off && typeof off.getStoveSeasonKey === "function" ? off.getStoveSeasonKey(context) : month >= 10 ? y + 1 : y;
+    const prevY = K - 1;
+    const firstYear = K === ((context && context.startYear) || 2025);
+    const done = (step) => Boolean(off && typeof off.isStoveStepDone === "function" && off.isStoveStepDone(context, step, K));
+    const declaredThisCycle = done("declared");
+    const priorityEnd = declaredThisCycle && context.faPriorityEndsDate ? context.faPriorityEndsDate : firstYear ? `${K}-01-08` : `${prevY}-12-08`;
+    const faOpenNow = declaredThisCycle && context.faMarketPhase && context.faMarketPhase !== "PRIORITY";
+    const phases = [
+      { key: "salary", label: "연봉 재계약", start: firstYear ? `${K}-01-01` : `${prevY}-11-05`, end: firstYear ? `${K}-01-31` : `${prevY}-12-01`, isDone: done("salary"), target: { tab: "offseason", sub: "salary" } },
+      { key: "faPriority", label: "FA 원소속 우선협상", start: firstYear ? `${K}-01-01` : `${prevY}-12-01`, end: priorityEnd, isDone: faOpenNow, target: { tab: "offseason", sub: "fa" } },
+      { key: "faOpen", label: "FA 자유협상", start: priorityEnd, end: `${K}-01-15`, isDone: false, target: { tab: "offseason", sub: "fa" } },
+      { key: "foreign", label: "외국인 · 아시아쿼터 계약", start: firstYear ? `${K}-01-01` : `${prevY}-11-05`, end: `${K}-01-31`, isDone: done("foreign"), target: { tab: "offseason", sub: "foreign" } },
+      { key: "camp", label: "코치진 · 스프링캠프", start: `${K}-02-01`, end: `${K}-03-21`, isDone: false, target: { tab: "offseason", sub: "camp" } }
+    ];
+    return phases.map((ph) => {
+      let status;
+      if (ph.isDone) status = "DONE";
+      else if (today < ph.start) status = "UPCOMING";
+      else if (today <= ph.end) status = "OPEN";
+      else status = "CLOSED";
+      const dDay = status === "UPCOMING" ? dayDiff(ph.start, today) : status === "OPEN" ? dayDiff(ph.end, today) : null;
+      return { key: ph.key, label: ph.label, start: ph.start, end: ph.end, status, dDay, target: ph.target };
+    });
+  }
+
   return {
     INFO_TYPES,
-    getUpcomingCalendar
+    getUpcomingCalendar,
+    getStovePhases
   };
 });

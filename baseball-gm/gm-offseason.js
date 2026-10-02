@@ -126,6 +126,24 @@
     return month >= 10 ? year + 1 : year;
   }
 
+  /**
+   * 계약 잔여 연수(contractYears) 규칙
+   *   - 매년 연봉 재계약(12/1)이 '방금 끝난 시즌'을 하나 소화한 것으로 보고 1을 뺀다.
+   *   - 재계약 직전 값이 1이면 계약 만료 → FA 공시 대상. 2 이상이면 1을 빼고 다음 시즌도 계약 중.
+   *   - 게임 첫해 1월 재계약은 게임 시작 전 시즌(2024)을 닫는 것이라 계약 연수를 빼지 않는다.
+   */
+  function nextDecrementingRenewalKey(context) {
+    const key = getStoveSeasonKey(context);
+    const pending = isStoveStepDone(context, "salary", key) ? key + 1 : key;
+    const firstSeason = (context && context.startYear) || 2025;
+    return Math.max(pending, firstSeason + 1);
+  }
+
+  /** startYear 시즌부터 years 년 계약을 지금 체결할 때 넣어야 할 contractYears */
+  function contractYearsFor(context, startYear, years) {
+    return Math.max(1, 1 + (Number(startYear) + Number(years) - nextDecrementingRenewalKey(context)));
+  }
+
   function markStoveStep(context, step) {
     if (!context) return;
     if (!context._stoveDone || typeof context._stoveDone !== "object") context._stoveDone = {};
@@ -148,6 +166,9 @@
     const userOffers = options.userOffers || {};
     const userPolicy = options.userPolicy || "FAIR";
     const advanceServiceTime = options.advanceServiceTime !== false;
+    const stoveKey = getStoveSeasonKey(context);
+    // 첫해 1월 재계약은 게임 시작 전 시즌을 닫는 것 → 다년계약 연수는 그대로
+    const closesPlayedSeason = stoveKey - 1 >= ((context && context.startYear) || 2025);
 
     const arbitrationCases = [];
     const holdoutEvents = [];
@@ -181,10 +202,12 @@
         }
 
         // 2) 다년 계약(FA 잔여 계약 등) 중인 선수는 계약 연수만 1년 차감하고 연봉 동결
+        //    (차감 후 1 이상 = 다음 시즌도 계약 중 → 이번 겨울 FA 공시 대상이 아님)
         if ((p.contractYears || 1) > 1) {
-          if (advanceServiceTime) {
+          if (advanceServiceTime && closesPlayedSeason) {
             p.contractYears -= 1;
           }
+          p.underContractFor = stoveKey;
           multiYearLockedCount += 1;
           newTotalPayroll += p.salary || MIN_SALARY;
           return;
@@ -517,6 +540,10 @@
    *    - C등급: 구단 11위 이하 OR 리그 61위 이하 OR 만 35세 이상 신규 OR 3회차 이상. (보상: 보상선수 없음 + 연봉 150%)
    * 2. 외부 영입 시 보상선수 페널티 가치(Penalty_comp) 연산 포함
    */
+  function hasActiveNonFA(p) {
+    return Boolean(p && p.nonFAContract && p.nonFAContract.active);
+  }
+
   function determineGrade(player, contextOrOptions = {}) {
     if (!player) {
       throw new Error("FA 등급 판정을 위해 유효한 player 객체가 필요합니다.");
@@ -545,7 +572,8 @@
           ...(homeTeam.roster2G || []),
           player
         ]
-          .filter((p, idx, arr) => (!p.nationality || p.nationality === "KOR") && arr.findIndex((x) => x.id === p.id) === idx)
+          // 비FA 다년계약 선수의 연봉은 등급 산정 순위에서 제외 (장기 보장액이 순위를 왜곡하지 않도록)
+          .filter((p, idx, arr) => (!p.nationality || p.nationality === "KOR") && arr.findIndex((x) => x.id === p.id) === idx && (p.id === player.id || !hasActiveNonFA(p)))
           .sort((a, b) => get3YearAverageSalaryManwon(b) - get3YearAverageSalaryManwon(a));
         const cIdx = clubDomestics.findIndex((p) => p.id === player.id);
         clubSalaryRank = cIdx >= 0 ? cIdx + 1 : 6;
@@ -555,7 +583,7 @@
         const leagueDomestics = [];
         context.kboTeams.forEach((t) => {
           [...(t.roster1G || []), ...(t.roster2G || [])].forEach((p) => {
-            if (!p.nationality || p.nationality === "KOR") leagueDomestics.push(p);
+            if ((!p.nationality || p.nationality === "KOR") && (p.id === player.id || !hasActiveNonFA(p))) leagueDomestics.push(p);
           });
         });
         if (!leagueDomestics.some((p) => p.id === player.id)) {
@@ -1095,18 +1123,19 @@
     context.faPriorityEndsDate = addDaysToDate(context.currentDate, FA_PRIORITY_DAYS);
     const maxPerTeam = options.maxFAsPerTeam || 3;
     const newlyDeclared = [];
+    const stoveKeyNow = getStoveSeasonKey(context);
 
     context.kboTeams.forEach((team) => {
       const candidates = [];
       team.roster1G.forEach((p) => {
         const reqYears = p.origin === "UNIV" ? 7 : 8;
-        if (p.nationality === "KOR" && (p.contractYears || 1) <= 1 && (p.faYears || 0) >= reqYears) {
+        if (p.nationality === "KOR" && (p.contractYears || 1) <= 1 && p.underContractFor !== stoveKeyNow && (p.faYears || 0) >= reqYears) {
           candidates.push(p);
         }
       });
       team.roster2G.forEach((p) => {
         const reqYears = p.origin === "UNIV" ? 7 : 8;
-        if (p.nationality === "KOR" && (p.contractYears || 1) <= 1 && (p.faYears || 0) >= reqYears && p.getTrueOvr() >= 73) {
+        if (p.nationality === "KOR" && (p.contractYears || 1) <= 1 && p.underContractFor !== stoveKeyNow && (p.faYears || 0) >= reqYears && p.getTrueOvr() >= 73) {
           candidates.push(p);
         }
       });
@@ -1286,7 +1315,7 @@
           faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
           faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
           faPlayer.salary = split.annualBaseSalaryManwon;
-          faPlayer.contractYears = years;
+          faPlayer.contractYears = contractYearsFor(context, getStoveSeasonKey(context), years);
           faPlayer.faYears = 0;
           if (formerTeam.roster1G.length < 28) {
             faPlayer.status = "1GUN";
@@ -1625,7 +1654,7 @@
       faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
       faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
       faPlayer.salary = annualSalary;
-      faPlayer.contractYears = offerY;
+      faPlayer.contractYears = contractYearsFor(context, getStoveSeasonKey(context), offerY);
       faPlayer.faYears = 0;
 
       // FA 풀에서 제거하고 유저 구단 1군(정원 초과 시 백업 2군 강등)에 등록
@@ -2123,7 +2152,7 @@
         faPlayer.teamSinceYear = context.currentYear || 2025; // 소속 구단 연속 시즌 (프랜차이즈 예외)
         faPlayer.wantsMarketTest = false; // 새 계약 체결로 시장 평가 욕구 해소
         faPlayer.salary = winningBid.annualSalary;
-        faPlayer.contractYears = winningBid.years;
+        faPlayer.contractYears = contractYearsFor(context, getStoveSeasonKey(context), winningBid.years);
         faPlayer.faYears = 0; // FA 계약 체결 시 FA 연차 리셋(4년 뒤 재취득 자격)
 
         if (winTeam.roster1G.length < 28) {
@@ -2773,6 +2802,7 @@
     calculateFairSalary,
     processSalaryRenewals,
     getStoveSeasonKey,
+    contractYearsFor,
     markStoveStep,
     isStoveStepDone,
     evaluateFAPlayerMarketProfile,

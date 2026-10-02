@@ -190,6 +190,55 @@
   }
 
   /** 계약 체결 (수락 조건이 아니면 거절) */
+  /* ───────────────────────────────────────────────────────────────
+   * 자유계약(방출) 선수 영입 — 계약금 예외
+   *   비FA 계약은 계약금이 없지만, 방출된 자유계약 선수는 다른 구단과 계약할 때 계약금을 받을 수 있다.
+   *   (게임 규칙) 1년 계약 · 요구 연봉 = 적정 연봉의 75%(최저 3,000만) · 계약금은 요구 연봉의 0~50%
+   *   계약금을 더 주면 요구 연봉이 그만큼 내려간다 (선수는 총액을 본다).
+   * ─────────────────────────────────────────────────────────────── */
+  function getReleasedMarket(context) {
+    const g = gm();
+    const off = g.Offseason;
+    return (context.releasedPool || [])
+      .filter((p) => !p.teamId && p.status === "RELEASED")
+      .map((p) => {
+        const fair = off && typeof off.calculateFairSalary === "function" ? off.calculateFairSalary(p) : p.salary || 3000;
+        const demandTotal = Math.max(3000, Math.round((fair * 0.75) / 100) * 100);
+        return { player: p, demandTotal, formerTeamId: p.formerTeamId, releasedDate: p.releasedDate };
+      })
+      .sort((a, b) => b.player.getTrueOvr() - a.player.getTrueOvr());
+  }
+
+  function signReleasedPlayer(context, teamId, playerId, offer = {}) {
+    const team = context.getTeam(teamId || context.userTeamId);
+    if (!team) return { ok: false, reason: "구단을 찾을 수 없습니다." };
+    const entry = getReleasedMarket(context).find((e) => e.player.id === playerId);
+    if (!entry) return { ok: false, reason: "자유계약 시장에서 선수를 찾을 수 없습니다." };
+    if (entry.formerTeamId === team.id) return { ok: false, reason: "방출한 구단은 같은 해에 다시 계약할 수 없습니다." };
+    const bonus = Math.max(0, Math.round(Number(offer.bonus) || 0));
+    const salary = Math.max(3000, Math.round(Number(offer.salary) || 0));
+    if (bonus > Math.round(entry.demandTotal * 0.5)) return { ok: false, reason: "계약금은 요구액의 50%까지만 줄 수 있습니다." };
+    if (bonus + salary < entry.demandTotal) {
+      return { ok: false, reason: `${entry.player.name} 측: "계약금과 연봉 합계로 ${eok(entry.demandTotal)}은 받아야 합니다."` };
+    }
+    if (team.getAvailableBudget() < bonus + salary) {
+      return { ok: false, reason: `여유 예산(${eok(team.getAvailableBudget())})이 계약금+연봉(${eok(bonus + salary)})보다 부족합니다.` };
+    }
+    const p = entry.player;
+    team.budget = clamp((team.budget || 0) - bonus, -3000000, 4000000);
+    p.salary = salary;
+    p.contractYears = 1;
+    p.teamId = team.id;
+    p.status = "2GUN";
+    p.acquiredVia = { type: "FREE_AGENT_RELEASED", date: context.currentDate || null, fromTeamId: entry.formerTeamId || null };
+    team.roster2G.push(p);
+    context.releasedPool = (context.releasedPool || []).filter((x) => x.id !== p.id);
+    return {
+      ok: true,
+      summary: `[자유계약 영입] ${p.name}(${p.pos}, ${p.age}세) 1년 · 계약금 ${eok(bonus)} + 연봉 ${eok(salary)} — 2군에 합류했습니다.`
+    };
+  }
+
   function signContract(context, teamId, playerId, offer = {}, options = {}) {
     const g = gm();
     const team = context.getTeam(teamId || context.userTeamId);
@@ -229,9 +278,11 @@
       rehabGamble: Boolean(player.injury && player.injury.active && player.injury.major),
       optionsPaid: 0
     };
-    // 남은 계약 연수 (12월 1일 연봉 재계약 때마다 1씩 줄고, 2 → 1이 되는 해에 FA 공시)
-    // 계약 마지막 시즌이 끝난 12월에 FA가 되도록: 다음 시즌 시작 계약은 기간+2, 올 시즌 시작은 기간+1
-    player.contractYears = ev.years + (startYear > context.currentYear ? 2 : 1);
+    // 남은 계약 연수: 계약 마지막 시즌이 끝난 12월에 FA가 되도록 Offseason.contractYearsFor 가 계산
+    player.contractYears =
+      g.Offseason && typeof g.Offseason.contractYearsFor === "function"
+        ? g.Offseason.contractYearsFor(context, startYear, ev.years)
+        : ev.years + (startYear > context.currentYear ? 1 : 0);
     player.isMultiYearExtended = true;
 
     const record = {
@@ -431,6 +482,8 @@
     evaluateOffer,
     previewSchedule,
     signContract,
+    getReleasedMarket,
+    signReleasedPlayer,
     getCandidates,
     processSeasonTransition,
     getFranchiseEligible,

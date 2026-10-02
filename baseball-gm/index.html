@@ -2048,11 +2048,160 @@
         display: none;
       }
     }
+
+    /* ── 디자인 2차: 표 숫자 정렬 · 그룹 머리글 · 행 동작 메뉴 · 단계 표시 ── */
+    .gm-table th.num,
+    .gm-table td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .gm-table tr.group-head th {
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: var(--fs-xs);
+      font-weight: 700;
+      padding-top: 14px;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .gm-table tr.group-head:hover {
+      background: none;
+    }
+    .action-cell {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .action-cell > * + * {
+      margin-left: 4px;
+    }
+    .row-menu {
+      position: relative;
+      display: inline-block;
+    }
+    .row-menu > summary {
+      list-style: none;
+      cursor: pointer;
+      display: inline-block;
+      min-width: 28px;
+      text-align: center;
+    }
+    .row-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+    .row-menu-pop {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 20;
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--e2);
+      padding: 4px;
+      text-align: left;
+    }
+    .row-menu-pop button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      color: var(--text-main);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .row-menu-pop button.text-bad {
+      color: var(--bad);
+    }
+    .row-menu-pop button:hover,
+    .row-menu-pop button:focus-visible {
+      background: var(--surface-hover);
+    }
+    .phase-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: var(--sp-4);
+    }
+    .phase {
+      flex: 1 1 180px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+    .phase:hover {
+      background: var(--surface-hover);
+    }
+    .phase .phase-name {
+      font-weight: 700;
+      font-size: var(--fs-sm);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .phase .phase-meta {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .phase.is-open {
+      border-color: var(--good);
+      box-shadow: inset 3px 0 0 var(--good);
+    }
+    .phase.is-done {
+      opacity: 0.8;
+    }
+    .phase[aria-current="page"] {
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    .modal-section {
+      margin-top: var(--sp-4);
+    }
+    .modal-section h4 {
+      font-size: var(--fs-sm);
+      font-weight: 700;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px 16px;
+      margin: 0;
+    }
+    .kv-grid div {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .kv-grid dt {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+    }
+    .kv-grid dd {
+      margin: 0;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
   </style>
 </head>
 <body>
   <!-- 우측 상단 테마 토글 (로비 화면용) -->
-  <button type="button" class="lobby-theme-floating" id="btnLobbyTheme">☀️ 밝게</button>
+  <button type="button" class="lobby-theme-floating" id="btnLobbyTheme">밝게</button>
 
   <!-- ═══════════════════════════════════════════════════════════════════════
        [화면 A] 시작 슬롯 선택 & 새 단장 만들기 화면 (스크린샷 1·2 동일 구조)
@@ -2072,7 +2221,7 @@
       <div id="lobbySlotCards" class="lobby-slot-list">
           <div class="lobby-slot-card">
             <div class="lobby-slot-left">
-              <div class="lobby-ball-icon">⚾</div>
+              <div class="lobby-ball-icon"></div>
               <div>
                 <div class="lobby-slot-name">백승수</div>
                 <div class="lobby-slot-sub">
@@ -2089,7 +2238,7 @@
         
           <div class="lobby-slot-card">
             <div class="lobby-slot-left">
-              <div class="lobby-ball-icon">⚾</div>
+              <div class="lobby-ball-icon"></div>
               <div>
                 <div class="lobby-slot-name">백승수</div>
                 <div class="lobby-slot-sub">
@@ -2119,7 +2268,7 @@
           
           <div class="lobby-slot-card">
             <div class="lobby-slot-left">
-              <div class="lobby-ball-icon">⚾</div>
+              <div class="lobby-ball-icon"></div>
               <div>
                 <div class="lobby-slot-name">백승수</div>
                 <div class="lobby-slot-sub">
@@ -2337,6 +2486,7 @@
       <span class="page-desc" id="areaPageDesc"></span>
     </div>
     <nav class="sub-nav" id="areaSubNav" aria-label="하위 메뉴"></nav>
+    <div class="phase-strip" id="stovePhaseStrip" role="group" aria-label="스토브리그 단계" hidden></div>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
          [단장실] 결정 대기함 · 받은 보고 · 마감 타임라인 · 팀 현황 → 순위표 · 주간 경기 · 포스트시즌
@@ -2463,15 +2613,15 @@
               <tr>
                 <th data-roster-sort="pos" style="cursor:pointer" title="클릭하여 보직순 정렬">보직 <span id="sortInd_pos"></span></th>
                 <th data-roster-sort="name" style="cursor:pointer" title="클릭하여 이름순 정렬">선수명 <span id="sortInd_name"></span></th>
-                <th data-roster-sort="age" style="cursor:pointer" title="클릭하여 나이순 정렬">나이 <span id="sortInd_age"></span></th>
+                <th class="num" data-roster-sort="age" style="cursor:pointer" title="클릭하여 나이순 정렬">나이 <span id="sortInd_age"></span></th>
                 <th>투타</th>
-                <th data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR <span id="sortInd_ovr"></span></th>
-                <th data-roster-sort="potential" style="cursor:pointer" title="클릭하여 포텐셜순 정렬">포텐셜 <span id="sortInd_potential"></span></th>
-                <th>이번 시즌 주요 기록 (1군 / 2군 퓨처스)</th>
-                <th data-roster-sort="war" style="cursor:pointer" title="클릭하여 WAR순 정렬">WAR <span id="sortInd_war"></span></th>
-                <th data-roster-sort="salary" style="cursor:pointer" title="클릭하여 연봉순 정렬">연봉 <span id="sortInd_salary"></span></th>
+                <th class="num" data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR <span id="sortInd_ovr"></span></th>
+                <th class="num" data-roster-sort="potential" style="cursor:pointer" title="클릭하여 포텐셜순 정렬">포텐셜 <span id="sortInd_potential"></span></th>
+                <th colspan="4" class="num" id="rosterRecHead">이번 시즌 기록</th>
+                <th class="num" data-roster-sort="war" style="cursor:pointer" title="클릭하여 WAR순 정렬">WAR <span id="sortInd_war"></span></th>
+                <th class="num" data-roster-sort="salary" style="cursor:pointer" title="클릭하여 연봉순 정렬">연봉 <span id="sortInd_salary"></span></th>
                 <th data-roster-sort="fatigue" style="cursor:pointer" title="클릭하여 피로도순 정렬">상태/피로도 <span id="sortInd_fatigue"></span></th>
-                <th>엔트리 · 방출 관리</th>
+                <th>동작</th>
               </tr>
             </thead>
             <tbody id="rosterTableBody"></tbody>
@@ -2698,7 +2848,7 @@
                   <option value="HITTING">타선 장타력·컨택·선구안 집중 강화</option>
                 </select>
               </div>
-              <button type="button" class="btn-primary" id="btnRunSpringCamp">✈️ 스프링캠프 출발 (14일 전지훈련 시작)</button>
+              <button type="button" class="btn-primary" id="btnRunSpringCamp">스프링캠프 출발 (14일 전지훈련 시작)</button>
             </div>
           </div>
         </div>
@@ -2714,9 +2864,9 @@
             <div class="tiny">상대 구단을 선택한 뒤 우리 선수와 상대 선수를 체크하여 <strong>내가 직접 트레이드를 제안</strong>하거나, AI 단장의 역제안을 받아볼 수 있습니다. (매년 7월 31일 마감)</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn-secondary" id="btnFindTradeOffers">🔍 선택한 우리 선수로 타구단 오퍼 탐색</button>
-            <button type="button" class="btn-secondary" id="btnTradeAutoBalance">🤝 AI 단장 조건 자동 조율 (지명권·현금)</button>
-            <button type="button" class="btn-primary" id="btnExecutePackageTrade">📨 내가 구성한 카드로 직접 트레이드 제안</button>
+            <button type="button" class="btn-secondary" id="btnFindTradeOffers">선택한 우리 선수로 타구단 오퍼 탐색</button>
+            <button type="button" class="btn-secondary" id="btnTradeAutoBalance">AI 단장 조건 자동 조율 (지명권·현금)</button>
+            <button type="button" class="btn-primary" id="btnExecutePackageTrade">내가 구성한 카드로 직접 트레이드 제안</button>
           </div>
         </div>
 
@@ -2826,7 +2976,7 @@
             <h2 class="panel-title">저장 슬롯</h2>
             <div class="tiny">이 브라우저에 저장됩니다. 새 단장은 ‘슬롯 화면으로 나가기’에서 시작하세요.</div>
           </div>
-          <button type="button" class="btn-primary" id="btnExportStandaloneHtml" disabled="">단일 index.html 병합 중...</button>
+          <button type="button" class="btn-secondary" id="btnExportStandaloneHtml">단일 HTML 파일 내려받기</button>
         </div>
 
         <div id="storageSlotList" class="slot-grid"></div>

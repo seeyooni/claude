@@ -438,7 +438,7 @@
     const curYear = (context && context.currentYear) || 2025;
     const allPlayers = team.getAllPlayers();
 
-    // 자동 보호 대상: 외국인/아시아쿼터, 당해/직전 입단 신인(1~2년차), FA 자격 선수, 군보류
+    // 자동 보호 대상: 외국인/아시아쿼터, 당해/직전 입단 신인(1~2년차), FA 자격 선수, 군보류, 비FA 다년계약
     const autoExemptIds = new Set();
     const autoProtectedPlayers = [];
     const candidatesFor35 = [];
@@ -448,8 +448,10 @@
       const isRecentRookie = p.draftInfo && Number(p.draftInfo.year) >= curYear - 1;
       const isFaEligible = (p.faYears || 0) >= 8 || p.status === "FA_POOL";
       const isMilitary = p.status === "MILITARY";
+      // 비FA 다년계약 선수: 구단이 장기 보장한 선수라 2차 드래프트에서 자동 보호 (게임 규칙)
+      const isMultiYear = Boolean(p.nonFAContract && p.nonFAContract.active);
 
-      if (isForeign || isRecentRookie || isFaEligible || isMilitary) {
+      if (isForeign || isRecentRookie || isFaEligible || isMilitary || isMultiYear) {
         autoExemptIds.add(p.id);
         autoProtectedPlayers.push(p);
       } else {
