@@ -114,8 +114,209 @@
     faGradeFilter: "ALL",       // 'ALL' | 'A' | 'B' | 'C'
     faPosFilter: "ALL",         // 'ALL' | 'PITCHER' | 'SP' | 'RP' | 'CL' | 'C' | 'IF' | '1B' | '2B' | '3B' | 'SS' | 'OF' | 'DH'
     faAffiliationFilter: "ALL", // 'ALL' | 'HOME' | 'EXTERNAL'
-    faSortBy: "DEMAND"          // 'DEMAND' | 'OVR' | 'WAR' | 'AGE'
+    faSortBy: "DEMAND",         // 'DEMAND' | 'OVR' | 'WAR' | 'AGE'
+    // 프런트 오피스 화면 구조: 프런트 심화 패널 중 지금 보여줄 섹션 번호 (null = 남은 섹션 전체)
+    front5Focus: null,
+    inboxFilter: "ALL",         // 받은 보고 출처 필터: 'ALL' | 'MINE' | 'SCOUT' | 'LEAGUE'
+    notifLog: [],               // 알림함 (최근 알림 40건)
+    notifUnread: 0
   };
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * 0. 프런트 오피스 정보 구조 (6개 업무 영역 → 기존 화면 매핑)
+   *    단장실 · 선수단 · 스카우팅 · 계약·이적 · 구단 운영 · 기록실 (+ 설정 메뉴의 저장·불러오기)
+   *    sub.tab = 기존 메인 탭, sub.off = 스토브리그 하위 패널, sub.f5 = 프런트 심화 패널 섹션 번호
+   * ═══════════════════════════════════════════════════════════════════════ */
+  const AREAS = [
+    {
+      key: "office",
+      label: "단장실",
+      desc: "결정할 일 · 받은 보고 · 다가오는 마감",
+      subs: [{ key: "home", label: "브리핑", tab: "pennant" }]
+    },
+    {
+      key: "squad",
+      label: "선수단",
+      desc: "1군·2군·육성군 엔트리와 보호명단",
+      subs: [
+        { key: "roster", label: "로스터", tab: "roster" },
+        { key: "protect", label: "보호명단", tab: "offseason", off: "front5", f5: [10] }
+      ]
+    },
+    {
+      key: "scouting",
+      label: "스카우팅",
+      desc: "아마추어·해외 선수 능력은 모두 추정치입니다. 스카우트 수준과 조사도에 따라 오차가 줄어듭니다.",
+      subs: [
+        { key: "draft", label: "신인 드래프트", tab: "offseason", off: "draft" },
+        { key: "draft2", label: "2차 드래프트", tab: "offseason", off: "front5", f5: [2] },
+        { key: "foreign", label: "외국인 · 아시아쿼터", tab: "offseason", off: "foreign" }
+      ]
+    },
+    {
+      key: "contracts",
+      label: "계약·이적",
+      desc: "돈이 나가는 결정. 여유 예산과 경쟁균형세 상한을 함께 보세요.",
+      subs: [
+        { key: "salary", label: "연봉 재계약", tab: "offseason", off: "salary" },
+        { key: "fa", label: "FA 시장", tab: "offseason", off: "fa" },
+        { key: "nonfa", label: "비FA 다년계약 · 경쟁균형세", tab: "offseason", off: "front5", f5: [5] },
+        { key: "trade", label: "트레이드", tab: "offseason", off: "trade" },
+        { key: "posting", label: "MLB 포스팅", tab: "offseason", off: "front5", f5: [6] },
+        { key: "dispute", label: "협상 · 분쟁", tab: "offseason", off: "front5", f5: [12] }
+      ]
+    },
+    {
+      key: "ops",
+      label: "구단 운영",
+      desc: "시설 투자 · 2군 육성 · 상무 · 감독과의 관계",
+      subs: [
+        { key: "facilities", label: "시설 · 2군 · 상무", tab: "facilities" },
+        { key: "manager", label: "감독 · 선수단 사기", tab: "manager" },
+        { key: "camp", label: "코치진 · 스프링캠프", tab: "offseason", off: "camp" }
+      ]
+    },
+    {
+      key: "records",
+      label: "기록실",
+      desc: "리그 기록과 시즌 회고 리포트",
+      subs: [{ key: "records", label: "기록", tab: "records" }]
+    },
+    {
+      key: "system",
+      label: "저장 · 불러오기",
+      desc: "",
+      hidden: true,
+      subs: [{ key: "storage", label: "저장 · 불러오기", tab: "storage" }]
+    }
+  ];
+  const FRONT5_KEPT = [2, 5, 6, 10, 12];
+
+  function sameList(a, b) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+
+  // 지금 화면 상태(activeTab · offseasonSubTab · front5Focus)에 맞는 영역/하위 메뉴
+  function findAreaSub(tab, off, f5) {
+    for (const area of AREAS) {
+      for (const sub of area.subs) {
+        if (sub.tab !== tab) continue;
+        if (sub.off && sub.off !== off) continue;
+        if (sub.f5 && !sameList(sub.f5, f5)) continue;
+        return { area, sub };
+      }
+    }
+    if (tab === "offseason" && off === "front5") {
+      return { area: AREAS.find((a) => a.key === "contracts"), sub: null };
+    }
+    return { area: AREAS[0], sub: AREAS[0].subs[0] };
+  }
+
+  function currentAreaSub() {
+    return findAreaSub(STATE.activeTab, STATE.offseasonSubTab, STATE.front5Focus);
+  }
+
+  // 업무 지시(assistant task)·일정 항목이 가리키는 화면
+  function resolveTaskTarget(taskId, tab, sub) {
+    const byId = {
+      PROTECTION_LIST_SUBMIT: { tab: "offseason", off: "front5", f5: [10] },
+      FUTURES_DEV_ASSIGN: { tab: "facilities" },
+      FACILITY_INVEST_REC: { tab: "facilities" },
+      MORALE_TRADE_DEMAND: { tab: "manager" }
+    };
+    if (taskId && byId[taskId]) return byId[taskId];
+    if (tab === "roster") return { tab: "roster", rosterSub: sub || null };
+    if (tab === "records") return { tab: "records", recSub: sub || null };
+    if (tab === "offseason") return { tab: "offseason", off: sub || "draft" };
+    return { tab: tab || "pennant" };
+  }
+
+  function navigateTo(target, opts = {}) {
+    if (!target) return;
+    STATE.activeTab = target.tab || "pennant";
+    if (target.off) STATE.offseasonSubTab = target.off;
+    STATE.front5Focus = target.tab === "offseason" && target.off === "front5" ? target.f5 || null : null;
+    if (target.rosterSub) {
+      STATE.rosterSubTab = target.rosterSub;
+      document.querySelectorAll("[data-roster-sub]").forEach((b) => b.classList.toggle("active", b.dataset.rosterSub === target.rosterSub));
+    }
+    if (target.recSub) STATE.recordsSubTab = target.recSub;
+    renderAll();
+    if (opts.focus !== false) {
+      const head = $("mainContent");
+      if (head) {
+        head.focus({ preventScroll: true });
+        // 상태 바(날짜·돈·마감)가 보이도록 맨 위로
+        if (typeof window.scrollTo === "function") window.scrollTo({ top: 0 });
+      }
+    }
+  }
+
+  // 상단 영역 메뉴 · 하위 메뉴 · 페이지 제목 · 문서 제목
+  function renderAreaNav() {
+    const { area, sub } = currentAreaSub();
+    const ctx = STATE.ctx;
+    // 영역별 '필수' 결정 건수 (결정 대기함과 같은 데이터)
+    const mustByArea = {};
+    const briefing = ctx && ctx.todaysBriefing;
+    if (briefing) {
+      (briefing.mustDo || []).forEach((t) => {
+        const tg = resolveTaskTarget(t.id, t.targetTab, t.targetSubTab);
+        const hit = findAreaSub(tg.tab, tg.off || STATE.offseasonSubTab, tg.f5 || null);
+        mustByArea[hit.area.key] = (mustByArea[hit.area.key] || 0) + 1;
+      });
+    }
+    document.querySelectorAll("[data-area]").forEach((btn) => {
+      const k = btn.dataset.area;
+      const a = AREAS.find((x) => x.key === k);
+      if (!a) return;
+      const n = k === "office" ? 0 : mustByArea[k] || 0;
+      btn.innerHTML = `${esc(a.label)}${n ? `<span class="nav-count" aria-label="필수 결정 ${n}건">${n}</span>` : ""}`;
+      if (k === area.key) btn.setAttribute("aria-current", "page");
+      else btn.removeAttribute("aria-current");
+    });
+
+    const subNav = $("areaSubNav");
+    if (subNav) {
+      subNav.innerHTML =
+        area.subs.length > 1
+          ? area.subs
+              .map(
+                (sb) =>
+                  `<button type="button" class="sub-link" data-area-sub="${area.key}:${sb.key}" ${sub && sub.key === sb.key ? 'aria-current="page"' : ""}>${esc(sb.label)}</button>`
+              )
+              .join("")
+          : "";
+    }
+    const title = $("areaPageTitle");
+    if (title) title.textContent = sub && area.subs.length > 1 ? `${area.label} · ${sub.label}` : area.label;
+    const desc = $("areaPageDesc");
+    if (desc) desc.textContent = area.desc || "";
+
+    const team = ctx && ctx.getUserTeam ? ctx.getUserTeam() : null;
+    document.title = `${sub && area.subs.length > 1 ? sub.label : area.label} · ${team ? team.name : "KBO"} 프런트 오피스`;
+  }
+
+  // 프런트 심화 패널: 영역별로 필요한 섹션만 보이고, 다른 화면과 겹치는 섹션(1·3·4·7·8·9·11)은 숨긴다
+  function applyFront5Focus() {
+    const container = $("front5DashboardContainer");
+    if (!container) return;
+    const show = STATE.front5Focus || FRONT5_KEPT;
+    container.querySelectorAll("[data-f5]").forEach((el) => {
+      el.hidden = !show.includes(Number(el.dataset.f5));
+    });
+  }
+
+  // 제목 앞 장식 이모지와 "1." 같은 번호 제거 (의미는 글자 라벨로 전달)
+  const LEADING_DECOR = /^[\s\d.]*(?:[\p{Extended_Pictographic}\u2600-\u27BF\uFE0F\u200D]\s*)+/u;
+  function stripTitleDecor(root) {
+    (root || document).querySelectorAll(".panel-title, .fo-card-title, h3").forEach((el) => {
+      const tn = el.firstChild;
+      if (tn && tn.nodeType === 3 && LEADING_DECOR.test(tn.nodeValue)) {
+        tn.nodeValue = tn.nodeValue.replace(LEADING_DECOR, "");
+      }
+    });
+  }
 
   /* ═══════════════════════════════════════════════════════════════════════
    * 1. 토스트 알림 및 테마 전환
@@ -124,11 +325,48 @@
   function showToast(msg, type = "info") {
     const el = $("gmToast");
     if (!el) return;
-    el.textContent = msg;
+    el.innerHTML = `<span class="toast-msg"></span><button type="button" class="toast-close" aria-label="알림 닫기">×</button>`;
+    el.firstChild.textContent = msg;
     el.dataset.type = type;
     el.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 2800);
+    // 길이에 비례해 4.5~9초 표시 후 자동으로 닫힘. 지난 알림은 알림함에 남는다
+    toastTimer = setTimeout(() => el.classList.remove("show"), Math.min(9000, 4500 + String(msg).length * 30));
+    const ctx = STATE.ctx;
+    STATE.notifLog.unshift({
+      when: ctx && GM.Setup && ctx.currentDate ? GM.Setup.formatKoreanDate(ctx.currentDate) : "",
+      msg: String(msg),
+      type
+    });
+    if (STATE.notifLog.length > 40) STATE.notifLog.length = 40;
+    STATE.notifUnread = Math.min(99, STATE.notifUnread + 1);
+    renderNotifBadge();
+  }
+
+  function renderNotifBadge() {
+    const badge = $("notifCount");
+    if (!badge) return;
+    badge.hidden = STATE.notifUnread <= 0;
+    badge.textContent = String(STATE.notifUnread);
+  }
+
+  function openNotifInbox() {
+    STATE.notifUnread = 0;
+    renderNotifBadge();
+    $("gmModalTitle").textContent = "알림함";
+    $("gmModalBody").innerHTML = STATE.notifLog.length
+      ? `<div class="tiny" style="margin-bottom:8px">최근 알림 ${STATE.notifLog.length}건 (최대 40건 보관)</div>` +
+        STATE.notifLog
+          .map(
+            (n) => `
+          <div class="notif-row">
+            <span class="tiny tnum">${esc(n.when)}</span>
+            <span class="${n.type === "bad" ? "text-bad" : ""}">${esc(n.msg)}</span>
+          </div>`
+          )
+          .join("")
+      : `<div class="empty-box">아직 받은 알림이 없습니다.</div>`;
+    $("gmModalBackdrop").hidden = false;
   }
 
   function applyTheme(theme) {
@@ -142,7 +380,7 @@
     const cur = root.getAttribute("data-theme") || "light";
     const btn = $("btnThemeToggle");
     if (btn) {
-      btn.textContent = cur === "dark" ? "☀️ 밝게" : "🌙 야간 경기장";
+      btn.textContent = cur === "dark" ? "밝은 화면" : "어두운 화면";
     }
     const lobbyBtn = $("btnLobbyTheme");
     if (lobbyBtn) {
@@ -298,7 +536,7 @@
 
     const lockedBadge = $("hdrLockedTeamName");
     if (lockedBadge) {
-      lockedBadge.textContent = `${userTeam.name} (${userTeam.id})`;
+      lockedBadge.textContent = userTeam.name;
     }
 
     const rec = userTeam.record || { w: 0, l: 0, d: 0 };
@@ -310,12 +548,20 @@
     const availBudget = userTeam.budget - payroll;
     const gmProf = ctx.gmProfile || { name: "김단장", traitLabel: "데이터 분석가" };
     const gmCon = ctx.gmContract || { yearsTotal: 3, yearsLeft: 3, totalAmount: 80000, signingBonus: 20000, annualSalary: 20000 };
-
     const diffLabel = GM.Economy ? GM.Economy.getDifficulty(ctx).label : "보통";
-    $("hdrTeamMeta").textContent = `${gmProf.name} 단장 (${gmProf.traitLabel}) · 난이도 ${diffLabel} · 계약: ${gmCon.yearsTotal}년 총액 ${fmtMoney(gmCon.totalAmount)} (계약금 ${fmtMoney(gmCon.signingBonus)}/연봉 ${fmtMoney(gmCon.annualSalary)}, 잔여 ${gmCon.yearsLeft}년)`;
+
+    // 순위 · 전적
+    const rankEl = $("hdrRank");
+    if (rankEl) rankEl.textContent = `${rankNum}위 · ${rec.w}승 ${rec.l}패${rec.d ? ` ${rec.d}무` : ""}`;
+    const metaEl = $("hdrTeamMeta");
+    metaEl.textContent = `${gmProf.name} 단장 · 난이도 ${diffLabel} · 계약 잔여 ${gmCon.yearsLeft}년`;
+    metaEl.title = `${gmProf.name} 단장 (${gmProf.traitLabel}) · 계약 ${gmCon.yearsTotal}년 총액 ${fmtMoney(gmCon.totalAmount)} (계약금 ${fmtMoney(gmCon.signingBonus)} · 연봉 ${fmtMoney(gmCon.annualSalary)})`;
+
+    // 돈: 예산(봉투) → 연봉 → 여유
     $("hdrBudget").textContent = fmtMoney(userTeam.budget);
     const payrollSubEl = $("hdrPayrollSub");
-    payrollSubEl.textContent = `연봉총액 ${fmtMoney(payroll)} · 여유 ${fmtMoney(availBudget)}${availBudget < 0 ? " (적자: 매주 구단주 신임도 하락)" : ""} · 현재 ${rankNum}위 (${rec.w}승 ${rec.l}패 ${rec.d}무)`;
+    payrollSubEl.textContent = `연봉 ${fmtMoney(payroll)} · 여유 ${availBudget < 0 ? "−" + fmtMoney(-availBudget) : fmtMoney(availBudget)}${availBudget < 0 ? " (적자)" : ""}`;
+    payrollSubEl.title = availBudget < 0 ? "적자 상태로 주간 정산을 맞으면 구단주 신임도가 떨어집니다." : "여유 예산 안에서만 FA 계약금·시설 투자·현금 트레이드가 가능합니다.";
     payrollSubEl.classList.toggle("text-bad", availBudget < 0);
 
     const trust = clamp(userTeam.ownerTrust ?? 80, 0, 100);
@@ -326,40 +572,62 @@
       : null;
     const mgrTrust = clamp(mcState ? mcState.managerTrust : (userTeam.managerTrust ?? 75), 0, 100);
 
-    $("hdrTrustVal").textContent = `${trust} / 100`;
-    $("hdrTrustBar").style.width = `${trust}%`;
-    const mgrValEl = $("hdrMgrTrustVal");
-    const mgrBarEl = $("hdrMgrTrustBar");
-    if (mgrValEl) mgrValEl.textContent = `${mgrTrust} / 100`;
-    if (mgrBarEl) mgrBarEl.style.width = `${mgrTrust}%`;
-    $("hdrFanVal").textContent = `${fan} / 100`;
-    $("hdrFanBar").style.width = `${fan}%`;
+    // 신임도 게이지: 단색, 40 미만일 때만 경고색
+    const setGauge = (valId, barId, v) => {
+      const valEl = $(valId);
+      const barEl = $(barId);
+      if (valEl) {
+        valEl.textContent = String(v);
+        valEl.classList.toggle("text-bad", v < 40);
+      }
+      if (barEl) {
+        barEl.style.width = `${v}%`;
+        barEl.classList.toggle("low", v < 40);
+      }
+    };
+    setGauge("hdrTrustVal", "hdrTrustBar", trust);
+    setGauge("hdrMgrTrustVal", "hdrMgrTrustBar", mgrTrust);
+    setGauge("hdrFanVal", "hdrFanBar", fan);
 
     const curDate = ctx.currentDate || `${ctx.currentYear}-01-01`;
     const korDate = GM.Setup ? GM.Setup.formatKoreanDate(curDate) : curDate;
     const phaseInfo = GM.Setup ? GM.Setup.getSeasonPhaseByDate(curDate) : { label: "페넌트레이스" };
-    $("hdrSeasonBadge").textContent = `${korDate} · ${phaseInfo.label}`;
+    $("hdrSeasonBadge").textContent = korDate;
+    $("hdrSeasonBadge").title = phaseInfo.label;
 
     const exp = userTeam.ownerExpectation;
-    $("hdrOwnerGoal").textContent = exp
-      ? `2024시즌 ${exp.prevRank || "-"}위 → 구단주 목표: ${exp.goalTitle} (스카우트 Lv.${ctx.scoutLevel})`
-      : `구단주 목표: 포스트시즌 진출 (스카우트 Lv.${ctx.scoutLevel})`;
+    $("hdrOwnerGoal").textContent = `${phaseInfo.label} · 목표 ${exp ? exp.goalTitle : "포스트시즌 진출"}`;
 
-    const btnNextDay = $("btnNextDay");
-    if (btnNextDay) {
-      btnNextDay.textContent = "+1일 진행";
-    }
-    const btnNext = $("btnNextWeek");
-    if (btnNext) {
-      btnNext.textContent = "1주 스킵 (+7일 진행)";
-      btnNext.disabled = false;
+    // 다음 마감 (일정 모듈)
+    const dlBtn = $("hdrNextDeadline");
+    const dlVal = $("hdrNextDeadlineVal");
+    if (dlBtn && dlVal) {
+      const cal = GM.FrontOffice ? GM.FrontOffice.getUpcomingCalendar(ctx, 60) : [];
+      const next = cal.find((c) => c.kind === "DEADLINE") || cal[0] || null;
+      if (next) {
+        dlVal.innerHTML = `${ddayBadge(next.dDay)}<span>${esc(next.title)}</span>`;
+        dlBtn.dataset.gotoTab = next.tab || "pennant";
+        dlBtn.dataset.gotoSub = next.subTab || "";
+        dlBtn.dataset.gotoF5 = next.f5 ? next.f5.join(",") : "";
+        dlBtn.disabled = false;
+        dlBtn.title = `${next.title} — ${next.detail}`;
+      } else {
+        dlVal.textContent = "60일 안에 마감 없음";
+        dlBtn.disabled = true;
+      }
     }
 
     renderTodaysTodoPanel();
   }
 
+  function ddayBadge(d) {
+    const cls = d <= 3 ? "urgent" : d <= 7 ? "soon" : "";
+    return `<span class="dday ${cls}">${d === 0 ? "오늘" : `D-${d}`}</span>`;
+  }
+
   /* ═══════════════════════════════════════════════════════════════════════
-   * 2-B. [PART 2] 단장 업무 가이드 '오늘의 할 일 (Today's To-Do)' 렌더링 (KBO_GM.Assistant)
+   * 2-B. 결정 대기함 (단장실) — 업무 비서(Assistant)가 올린 결정 필요 항목
+   *      필수 = 마감이 걸린 결정 / 추천 = 비서의 의견
    * ═══════════════════════════════════════════════════════════════════════ */
   function renderTodaysTodoPanel() {
     const panel = $("todaysTodoPanel");
@@ -368,50 +636,65 @@
 
     const briefing = GM.Assistant.generateDailyBriefing(ctx);
     ctx.todaysBriefing = briefing;
-    const allTasks = [...(briefing.mustDo || []), ...(briefing.recommended || [])];
+    const must = briefing.mustDo || [];
+    const rec = briefing.recommended || [];
+    const note = $("foDecisionNote");
+    if (note) note.textContent = `필수 ${must.length} · 추천 ${rec.length}`;
 
-    if (!allTasks.length) {
-      panel.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-          <div>
-            <strong style="font-size:13.5px">📋 오늘의 단장 업무 브리핑 (${esc(briefing.koreanDate)})</strong>
-            <span class="tiny text-good" style="margin-left:8px">현재 처리해야 할 긴급/추천 업무가 모두 완료되었습니다! 안심하고 일정을 진행하세요.</span>
-          </div>
-        </div>
-      `;
+    if (!must.length && !rec.length) {
+      panel.innerHTML = `<div class="empty-box">지금 결정할 일이 없습니다. 날짜를 진행해도 됩니다.</div>`;
       return;
     }
-
-    panel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+    const cleanTitle = (t) => String(t || "").replace(/^\[[^\]]*\]\s*/, "");
+    const row = (t, isMust) => `
+      <li class="decision ${isMust ? "is-must" : "is-rec"}">
+        <span class="it ${isMust ? "it-action" : "it-opinion"}">${isMust ? "결정 · 필수" : "비서 추천"}</span>
         <div>
-          <strong style="font-size:14px">📋 오늘의 단장 업무 가이드 (KBO_GM.Assistant · ${esc(briefing.koreanDate)})</strong>
-          <span class="tiny" style="margin-left:8px">
-            🔴 필수 할 일 <strong>${briefing.mustDo.length}건</strong> ·
-            🟡 추천 할 일 <strong>${briefing.recommended.length}건</strong>
-          </span>
+          <p class="decision-title">${esc(cleanTitle(t.title))}</p>
+          <div class="decision-desc">${esc(t.desc)}</div>
         </div>
-        <span class="tiny muted">원클릭 자동 해결 또는 해당 업무 탭으로 즉시 이동할 수 있습니다.</span>
-      </div>
-      <div class="scout-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px">
-        ${allTasks
-          .map(
-            (t) => `
-            <div class="scout-card" style="padding:10px 12px;border-left:4px solid ${t.priority === "MUST_DO" ? "var(--bad)" : "#f59e0b"}">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px">
-                <strong style="font-size:12.5px">${esc(t.badge)} · ${esc(t.title)}</strong>
-              </div>
-              <div class="tiny" style="margin:4px 0 8px">${esc(t.desc)}</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" class="btn-xs primary" data-assistant-quick-task="${esc(t.id)}">⚡ ${esc(t.quickActionLabel)}</button>
-                <button type="button" class="btn-xs ghost" data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}">업무 화면 이동 →</button>
-              </div>
-            </div>
-          `
-          )
-          .join("")}
-      </div>
+        <div class="decision-actions">
+          <button type="button" class="btn-xs ${isMust ? "primary" : ""}" data-assistant-goto-tab="${esc(t.targetTab)}" data-assistant-goto-sub="${esc(t.targetSubTab || "")}" data-assistant-task-id="${esc(t.id)}">직접 검토</button>
+          <button type="button" class="btn-xs ghost" data-assistant-quick-task="${esc(t.id)}" title="비서가 무난한 기본안으로 처리합니다">${esc(String(t.quickActionLabel || "맡기기").replace(/^[^\p{L}\p{N}]+/u, ""))}</button>
+        </div>
+      </li>`;
+    panel.innerHTML = `
+      <ul class="decision-list">
+        ${must.map((t) => row(t, true)).join("")}
+        ${rec.map((t) => row(t, false)).join("")}
+      </ul>
     `;
+  }
+
+  // 단장실: 앞으로 60일 일정·마감
+  function renderOfficeTimeline() {
+    const el = $("foTimeline");
+    const ctx = STATE.ctx;
+    if (!el || !ctx || !GM.FrontOffice) return;
+    const cal = GM.FrontOffice.getUpcomingCalendar(ctx, 60).slice(0, 8);
+    if (!cal.length) {
+      el.innerHTML = `<li><span></span><span class="tiny">60일 안에 예정된 마감이 없습니다.</span></li>`;
+      return;
+    }
+    const kindLabel = { DEADLINE: "마감", WINDOW: "기간 시작", EVENT: "일정" };
+    el.innerHTML = cal
+      .map(
+        (c) => `
+        <li>
+          ${ddayBadge(c.dDay)}
+          <div>
+            <div class="tl-title"><button type="button" data-goto-tab="${esc(c.tab || "pennant")}" data-goto-sub="${esc(c.subTab || "")}" data-goto-f5="${c.f5 ? c.f5.join(",") : ""}">${esc(c.title)}</button></div>
+            <div class="tl-meta">${esc(kindLabel[c.kind] || "")} · ${esc(c.date.slice(5).replace("-", "/"))} · ${esc(c.detail)}</div>
+          </div>
+        </li>`
+      )
+      .join("");
+  }
+
+  // 추정 범위 "61~61" → "61" (같은 값이면 단일값)
+  function fmtRange(r) {
+    const m = String(r == null ? "" : r).match(/^\s*(\d+)\s*[~–-]\s*(\d+)\s*$/);
+    return m && m[1] === m[2] ? m[1] : String(r == null ? "" : r);
   }
 
   function clamp(v, lo, hi) {
@@ -424,6 +707,7 @@
   function renderPennantTab() {
     const ctx = STATE.ctx;
     if (!ctx) return;
+    renderOfficeTimeline();
     const userTeam = ctx.getUserTeam();
     const standings = ctx.standings && ctx.standings.length ? ctx.standings : GM.calculateKBOStandings(ctx);
 
@@ -483,23 +767,15 @@
 
     const statSummaryEl = $("pennantTeamStatSummary");
     if (statSummaryEl) {
+      const injuredCnt = allMy.filter((p) => p.injury && p.injury.active).length;
+      const fRecK = userTeam.futuresRecord || { w: 0, l: 0, d: 0 };
       statSummaryEl.innerHTML = `
-        <div class="stat-tile">
-          <div class="stat-label">팀 타율 / 출루율</div>
-          <div class="stat-val tnum">${teamAvg} <span class="stat-sub">/ ${teamObp}</span></div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-label">팀 평균자책점 (ERA)</div>
-          <div class="stat-val tnum">${teamEra} <span class="stat-sub">(${totK}탈삼진)</span></div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-label">팀 누적 홈런</div>
-          <div class="stat-val tnum">${totHR}개</div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-label">선수단 합산 WAR</div>
-          <div class="stat-val tnum">${totWar.toFixed(1)}</div>
-        </div>
+        <div class="kpi"><dt>팀 타율 / 출루율</dt><dd class="tnum">${teamAvg} <small>/ ${teamObp}</small></dd></div>
+        <div class="kpi"><dt>팀 평균자책점</dt><dd class="tnum">${teamEra} <small>${totK}탈삼진</small></dd></div>
+        <div class="kpi"><dt>팀 홈런</dt><dd class="tnum">${totHR}</dd></div>
+        <div class="kpi"><dt>선수단 WAR 합계</dt><dd class="tnum">${totWar.toFixed(1)}</dd></div>
+        <div class="kpi"><dt>부상자</dt><dd class="tnum ${injuredCnt ? "text-bad" : ""}">${injuredCnt}명</dd></div>
+        <div class="kpi"><dt>2군 퓨처스</dt><dd class="tnum">${fRecK.w}승 ${fRecK.l}패 <small>${fRecK.d}무</small></dd></div>
       `;
     }
 
@@ -510,7 +786,7 @@
       if (!rep || !rep.kbo || !Array.isArray(rep.kbo.matchResults)) {
         matchBoxEl.innerHTML = `
           <div class="empty-box">
-            아직 진행된 주간 경기가 없습니다. 상단의 <strong>'주차 진행 (Fast-Sim)'</strong> 버튼을 눌러 페넌트레이스를 시작하세요.
+            아직 진행된 주간 경기가 없습니다. 상단의 <strong>+1일 · +1주</strong> 버튼으로 일정을 진행하세요.
           </div>
         `;
       } else {
@@ -563,95 +839,91 @@
       }
     }
 
-    // 4) [요청 6 & 7] 주간 부상/복귀 · 2군 퓨처스리그 성장 · 멀티리그 스카우트 속보 (내 구단 관련 사항은 '굵은 글씨' 강조!)
+    // 4) 받은 보고: 출처(누가 보고했나)와 정보 유형(확정/추정/의견)을 붙여서 보여준다
+    //    src: 의무팀 · 2군 코치 · 스카우트팀 · 해외 스카우트 · 리그 소식 / scope: MINE · SCOUT · LEAGUE
     const newsEl = $("pennantWeeklyNews");
     if (newsEl) {
+      const items = [];
+      const push = (src, type, scope, text, tone) => items.push({ src, type, scope, text, tone });
       if (!rep) {
         const activeInj = userTeam.getAllPlayers().filter((p) => p.injury && p.injury.active);
         const fRec = userTeam.futuresRecord || { w: 0, l: 0, d: 0 };
-        const baseItems = [];
-        if (activeInj.length) {
-          activeInj.forEach((p) => {
-            baseItems.push(
-              `<div class="news-item bad" style="border-left:4px solid var(--bad)"><strong style="font-weight:800">[내 구단 부상자] ${esc(userTeam.name)} ${esc(p.name)} (${p.pos}) — ${esc(p.injury.label)} (${p.injury.weeksLeft}주 잔여)</strong></div>`
-            );
-          });
-        } else {
-          baseItems.push(
-            `<div class="news-item good"><strong style="font-weight:800">[내 구단 컨디션] ${esc(userTeam.name)}(${esc(fmtMascot(userTeam.id))}) 현재 부상자 0명 — 1군·2군 전원 정상 가동 중 (2군 퓨처스 ${fRec.w}승 ${fRec.l}패 ${fRec.d}무)</strong></div>`
-          );
+        activeInj.forEach((p) => {
+          push("의무팀", "FACT", "MINE", `${p.name} (${p.pos}) — ${p.injury.label}, ${p.injury.weeksLeft}주 남음`, "bad");
+        });
+        if (!activeInj.length) {
+          push("의무팀", "FACT", "MINE", `부상자 없음 · 1군·2군 전원 정상 (2군 ${fRec.w}승 ${fRec.l}패 ${fRec.d}무)`, "good");
         }
-        newsEl.innerHTML = baseItems.join("");
       } else {
-        const items = [];
-        // [요청 7 & 6] 내 구단 2군 퓨처스리그 주간 성적 및 유망주 성장 리포트 (내 구단이므로 굵은 글씨!)
         if (rep.futures) {
           const myFDelta = rep.futures.teamWeeklyDelta && rep.futures.teamWeeklyDelta[userTeam.id];
           const myGrowths = (rep.futures.growthEvents || []).filter((g) => g.teamId === userTeam.id);
           if (myFDelta) {
             const gText = myGrowths.length
-              ? ` · 2군 급성장: ${myGrowths.map((g) => `${esc(g.playerName)}(${g.pos}, ${esc(g.statGained)})`).join(", ")}`
-              : " · 2군 유망주 실전 경험치 축적 중";
-            items.push(
-              `<div class="news-item highlight" style="border-left:4px solid var(--accent)"><strong style="font-weight:800">[내 구단 2군 퓨처스 속보] ${esc(userTeam.name)} 2군 금주 ${myFDelta.w}승 ${myFDelta.l}패 ${myFDelta.d}무${gText}</strong></div>`
-            );
+              ? ` · 성장: ${myGrowths.map((g) => `${g.playerName}(${g.pos}, ${g.statLabel} +${g.gain})`).join(", ")}`
+              : "";
+            push("2군 코치", "FACT", "MINE", `2군 이번 주 ${myFDelta.w}승 ${myFDelta.l}패 ${myFDelta.d}무${gText}`, myGrowths.length ? "good" : "");
           }
         }
-
-        // [요청 6] 부상자 리포트 (내 구단 선수는 굵은 글씨 강조)
         (rep.kbo.injuries || []).forEach((inj) => {
           const isMy = inj.teamId === userTeam.id || inj.teamName === userTeam.name;
-          const lineTxt = `[${esc(inj.teamName)} 부상] ${esc(inj.playerName)} (${inj.pos}) — ${esc(inj.label)} (${inj.weeksLeft}주 진단의료)`;
-          items.push(
-            `<div class="news-item ${isMy ? "bad" : ""}" ${isMy ? 'style="border-left:4px solid var(--bad)"' : ""}>${
-              isMy ? `<strong style="font-weight:800">★ [내 구단 긴급] ${lineTxt}</strong>` : lineTxt
-            }</div>`
-          );
+          push(isMy ? "의무팀" : "리그 소식", "FACT", isMy ? "MINE" : "LEAGUE", `${isMy ? "" : inj.teamName + " "}${inj.playerName} (${inj.pos}) 부상 — ${inj.label}, ${inj.weeksLeft}주 진단`, isMy ? "bad" : "");
         });
-
-        // [요청 6] 부상 복귀 리포트 (내 구단 선수는 굵은 글씨 강조)
         (rep.kbo.recoveries || []).forEach((recov) => {
           const isMy = recov.teamId === userTeam.id || recov.teamName === userTeam.name;
-          const lineTxt = `[부상 복귀] ${esc(recov.teamName)} ${esc(recov.playerName)} (${recov.pos}) 선수 완쾌 후 엔트리 합류`;
-          items.push(
-            `<div class="news-item good" ${isMy ? 'style="border-left:4px solid var(--good)"' : ""}>${
-              isMy ? `<strong style="font-weight:800">★ [내 구단 호재] ${lineTxt}</strong>` : lineTxt
-            }</div>`
-          );
+          push(isMy ? "의무팀" : "리그 소식", "FACT", isMy ? "MINE" : "LEAGUE", `${isMy ? "" : recov.teamName + " "}${recov.playerName} (${recov.pos}) 부상 복귀`, isMy ? "good" : "");
         });
-
-        // 타구단 2군 주요 성장 소식 (1건)
         if (rep.futures && Array.isArray(rep.futures.growthEvents)) {
-          const otherGrowths = rep.futures.growthEvents.filter((g) => g.teamId !== userTeam.id).slice(0, 1);
-          otherGrowths.forEach((og) => {
-            items.push(
-              `<div class="news-item">[퓨처스 2군 리포트] ${esc(og.teamName)} 2군 ${esc(og.playerName)}(${og.pos}, ${og.age}세) 실전 등판/출장으로 ${esc(og.statGained)} 성장 (OVR ${og.newOvr})</div>`
-            );
-          });
+          rep.futures.growthEvents
+            .filter((g) => g.teamId !== userTeam.id)
+            .slice(0, 1)
+            .forEach((og) => {
+              push("리그 소식", "FACT", "LEAGUE", `${og.teamName} 2군 ${og.playerName}(${og.pos}, ${og.age}세) ${og.statLabel} +${og.gain} 성장 · OVR ${og.newOvr}`, "");
+            });
         }
-
         if (rep.amateur && rep.amateur.tournament) {
-          items.push(
-            `<div class="news-item highlight">[전국대회 개막] <strong>${esc(rep.amateur.tournament.name)}</strong> 개최! 고교·대학·독립리그 유망주 드래프트 주가가 요동쳤습니다.</div>`
-          );
+          push("스카우트팀", "FACT", "SCOUT", `${rep.amateur.tournament.name} 개최 — 아마추어 유망주 평가가 바뀌었습니다`, "");
           (rep.amateur.risers || []).slice(0, 2).forEach((r) => {
             const origKor = r.origin === "IND" ? "독립리그" : r.origin === "UNIV" ? "대학" : "고교";
-            items.push(
-              `<div class="news-item good">[스카우트 타겟 급상승] <strong style="font-weight:800">[우리 스카우트팀 주목]</strong> ${esc(r.name)} (${origKor}/${r.pos}) — ${esc(r.note)} (예상 ${r.prevRank}위 → ${r.newRank}위, ▲${r.rankDelta})</div>`
-            );
+            push("스카우트팀", "ESTIMATE", "SCOUT", `${r.name} (${origKor}/${r.pos}) 주가 상승: 예상 ${r.prevRank}위 → ${r.newRank}위 · ${r.note}`, "good");
           });
         }
-
         (rep.npb.hotPlayers || []).slice(0, 2).forEach((hp) => {
-          items.push(
-            `<div class="news-item">[해외/아시아쿼터 스카우트 속보] ${esc(hp.name)} (${hp.origin}/${hp.pos}) — ${esc(hp.note)}</div>`
-          );
+          push("해외 스카우트", "OPINION", "SCOUT", `${hp.name} (${hp.origin}/${hp.pos}) — ${hp.note}`, "");
         });
-
-        newsEl.innerHTML = items.length
-          ? items.join("")
-          : `<div class="news-item"><strong style="font-weight:800">[내 구단 브리핑] ${esc(userTeam.name)} 금주 부상자 없이 정규시즌 및 2군 퓨처스 일정이 순조롭게 진행되었습니다.</strong></div>`;
+        if (!items.length) {
+          push("프런트", "FACT", "MINE", "이번 주 부상자 없이 1군·2군 일정이 진행됐습니다.", "");
+        }
       }
+
+      const typeChip = { FACT: '<span class="it it-fact">확정</span>', ESTIMATE: '<span class="it it-est">추정</span>', OPINION: '<span class="it it-opinion">의견</span>' };
+      const filters = [
+        ["ALL", "전체"],
+        ["MINE", "우리 구단"],
+        ["SCOUT", "스카우트"],
+        ["LEAGUE", "리그"]
+      ];
+      const filterEl = $("foInboxFilter");
+      if (filterEl) {
+        filterEl.innerHTML = filters
+          .map(([k, label]) => {
+            const n = k === "ALL" ? items.length : items.filter((it) => it.scope === k).length;
+            return `<button type="button" class="sub-link" data-inbox-filter="${k}" ${STATE.inboxFilter === k ? 'aria-current="true"' : ""}>${label} <span class="tnum">${n}</span></button>`;
+          })
+          .join("");
+      }
+      const shown = items.filter((it) => STATE.inboxFilter === "ALL" || it.scope === STATE.inboxFilter);
+      newsEl.innerHTML = shown.length
+        ? shown
+            .map(
+              (it) => `
+          <li class="inbox-item ${it.scope === "MINE" ? "is-mine" : ""} ${it.tone === "bad" ? "is-bad" : it.tone === "good" ? "is-good" : ""}">
+            <div class="inbox-src">${esc(it.src)} ${typeChip[it.type] || ""}</div>
+            <div class="inbox-body">${esc(it.text)}</div>
+          </li>`
+            )
+            .join("")
+        : `<li class="inbox-item"><div class="inbox-src"></div><div class="inbox-body muted">이 출처의 보고가 없습니다.</div></li>`;
     }
 
     // 5) [PART 4-1] KBO 포스트시즌(가을야구) 계단식 토너먼트 현황 패널 (가을야구 기간 10월 10일 개막 시 발동)
@@ -686,10 +958,10 @@
              ✅ <strong>[${ctx.currentYear} KBO 포스트시즌 종료]</strong> 한국시리즈 통합 우승: <strong>${esc(thisYearPs.championTeamName)}</strong> · 준우승: <strong>${esc(thisYearPs.runnerUpTeamName)}</strong>
            </div>`
         : psGate.allowed
-        ? `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid #22c55e;background:rgba(34,197,94,0.12)">
+        ? `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--good);background:var(--good-soft)">
              🟢 <strong>[${ctx.currentYear} KBO 가을야구 포스트시즌 개막!]</strong> 페넌트레이스가 종료되고 가을야구 시즌(10월 10일~)이 도래했습니다! 우측 상단 <strong>'🏆 ${ctx.currentYear} KBO 포스트시즌 진행'</strong> 버튼을 눌러 와일드카드부터 한국시리즈까지 진행하세요. (10월 31일 스토브리그 전환 시 자동 결산)
            </div>`
-        : `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid #f59e0b;background:rgba(245,158,11,0.1)">
+        : `<div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid var(--warn);background:var(--warn-soft)">
              🔒 <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> KBO 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 공식 개막합니다. 정규시즌 일정을 진행해 상위 5개 시드를 확정하세요.
            </div>`;
 
@@ -814,7 +1086,7 @@
               growths.length
                 ? `<strong class="text-good">최근 2군 경기 성장 선수:</strong> ${growths
                     .slice(0, 4)
-                    .map((g) => `<strong>${esc(g.playerName)}</strong>(${g.pos}, ${esc(g.statGained)} → OVR ${g.newOvr})`)
+                    .map((g) => `<strong>${esc(g.playerName)}</strong>(${g.pos}, ${esc(g.statLabel)} +${g.gain} → OVR ${g.newOvr})`)
                     .join(" · ")}`
                 : `주간 진행 시 2군/육성군 경기가 함께 치러지며 유망주들의 능력치가 실시간 성장합니다.`
             }
@@ -919,7 +1191,7 @@
         const se = p.scoutError || { ovrMin: 60, ovrMax: 70 };
         const ovrDisplay = isOwnTeam
           ? `<strong class="tnum">${p.getTrueOvr()}</strong> <span class="muted">(${GM.grade(p.getTrueOvr())})</span>`
-          : `<span class="tnum">${se.ovrMin}~${se.ovrMax}</span>`;
+          : `<span class="tnum est-val" title="스카우트 추정치">${se.ovrMin}~${se.ovrMax}</span>`;
         const potDisplay = isOwnTeam
           ? `<span class="tnum">${p.potential}</span>`
           : `<span class="muted">스카우팅</span>`;
@@ -985,11 +1257,11 @@
 
         const originBadge =
           p.isAsianQuarter
-            ? `<span class="inline-tag" style="background:rgba(56,189,248,0.2);color:#38bdf8">아시아쿼터(${esc(p.nationality)})</span>`
+            ? `<span class="inline-tag" style="background:var(--est-soft);color:var(--est)">아시아쿼터(${esc(p.nationality)})</span>`
             : p.nationality !== "KOR"
               ? `<span class="inline-tag">${esc(p.nationality)}</span>`
               : p.origin === "IND"
-                ? `<span class="inline-tag" style="background:rgba(168,85,247,0.18);color:#c084fc">독립리그 출신</span>`
+                ? `<span class="inline-tag" style="background:var(--opinion-soft);color:var(--opinion)">독립리그 출신</span>`
                 : "";
 
         return `
@@ -1105,7 +1377,7 @@
       ? `<span class="text-good font-bold">✅ 금년도 1~10라운드 공식 지명 완료</span>`
       : canPickNow
         ? `<span class="text-good font-bold">🟢 [드래프트 지명 진행 가능] 오늘(9월 23일 이후) 직접 지명 또는 라운드 자동 지명을 실행할 수 있습니다! (현재 ${nextRound}R 차례 · 잔여 ${ctx.draftPool.length}명)</span>`
-        : `<span style="color:#f59e0b;font-weight:700">⏳ [사전 스카우팅 기간] 신인 드래프트 직접 지명은 매년 <strong>9월 23일</strong>에 오픈됩니다. 9월 23일 전까지는 아래에서 스카우트 팀을 파견하고 유망주 스카우트 리포트를 열람하세요!</span>`;
+        : `<span style="color:var(--warn);font-weight:700">⏳ [사전 스카우팅 기간] 신인 드래프트 직접 지명은 매년 <strong>9월 23일</strong>에 오픈됩니다. 9월 23일 전까지는 아래에서 스카우트 팀을 파견하고 유망주 스카우트 리포트를 열람하세요!</span>`;
 
     $("draftStatusBanner").innerHTML = `
       <div>
@@ -1231,9 +1503,9 @@
                 <span class="scout-rank-tag">추천 ${idx + 1}순위</span>
               </div>
               <div class="scout-metrics tnum">
-                <span>스카우트 추정 OVR: <strong>${esc(r.ovrRange)}</strong></span>
+                <span><span class="it it-est">추정</span> OVR <strong class="est-val">${esc(fmtRange(r.ovrRange))}</strong></span>
                 <span class="sep">·</span>
-                <span>추정 포텐셜: <strong>${r.perceivedPot}</strong></span>
+                <span>포텐셜 <strong class="est-val">${r.perceivedPot}</strong></span>
                 <span class="sep">·</span>
                 <span>종합점수: <strong>${r.totalScore}</strong></span>
               </div>
@@ -1244,7 +1516,7 @@
                     ? `<button type="button" class="btn-sm primary" data-draft-pick="${r.playerId}">${nextRound}라운드 직접 지명</button>`
                     : `<button type="button" class="btn-sm ghost" disabled title="매년 9월 23일부터 직접 지명이 가능합니다">🔒 9월 23일 직접 지명 오픈</button>`
                 }
-                <button type="button" class="btn-sm ${canPickNow ? "ghost" : "primary"}" data-player-modal="${r.playerId}" data-pool="draft">📋 스카우트 리포트 열람</button>
+                <button type="button" class="btn-sm ghost" data-player-modal="${r.playerId}" data-pool="draft">스카우트 리포트</button>
               </div>
             </div>
           `;
@@ -1263,7 +1535,7 @@
           const proj = p.draftProjection ? p.draftProjection.tierLabel : `${idx + 1}순위권 유망주`;
           const grpText =
             p.origin === "IND"
-              ? `<span style="color:#c084fc;font-weight:700">독립(${esc(p.indClubName || "연천 미라클")}·${p.age}세)</span>`
+              ? `<span style="color:var(--opinion);font-weight:700">독립(${esc(p.indClubName || "연천 미라클")}·${p.age}세)</span>`
               : p.origin === "UNIV"
                 ? `대학(${p.gradeYear || 4}학년·${p.age}세)`
                 : `고교(${p.gradeYear || 3}학년·${p.age}세)`;
@@ -1275,7 +1547,7 @@
               <td><span class="pos-code pos-${p.type}">${esc(p.pos)}</span></td>
               <td><strong>${esc(p.name)}</strong> <span class="tiny muted">(${esc(fmtHand(p))})</span></td>
               <td>${grpText}</td>
-              <td class="tnum">${ovrText}</td>
+              <td class="tnum ${se.isExact || se.ovrMin === se.ovrMax ? "" : "est-val"}">${ovrText}</td>
               <td>${esc(proj)}</td>
               <td>
                 ${
@@ -1285,7 +1557,7 @@
                       : `<button type="button" class="btn-xs ghost" disabled title="9월 23일부터 직접 지명 가능">🔒 9/23 지명</button>`
                     : `<button type="button" class="btn-xs" data-sign-undrafted="${p.id}">육성영입</button>`
                 }
-                <button type="button" class="btn-xs ${canPickNow ? "ghost" : "primary"}" data-player-modal="${p.id}" data-pool="draft">상세 리포트</button>
+                <button type="button" class="btn-xs ghost" data-player-modal="${p.id}" data-pool="draft">리포트</button>
               </td>
             </tr>
           `;
@@ -1481,7 +1753,7 @@
 
         ctrlBar.innerHTML = `
           <!-- [요청 3] FA 협상 단계 (원소속 우선협상 기간 ↔ 전 구단 완전 개방 기간) -->
-          <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid ${isPriority ? "#f59e0b" : "#22c55e"};display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
+          <div class="weekly-summary-banner" style="margin-bottom:10px;border-left:4px solid ${isPriority ? "var(--warn)" : "var(--good)"};display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px">
             <div>
               <div style="font-size:13.5px">
                 <strong>${isPriority ? "🔒 [1단계: 원소속구단 우선협상 기간]" : "🔓 [2단계: 전 구단 완전 개방 (Open Market) 기간]"}</strong>
@@ -1529,7 +1801,7 @@
                 </select>
               </div>
             </div>
-            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding-top:6px;border-top:1px solid rgba(148,163,184,0.18)">
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding-top:6px;border-top:1px solid var(--surface-subtle)">
               <strong class="tiny" style="min-width:68px">⚾ 포지션:</strong>
               ${posTabs
                 .map(
@@ -1594,7 +1866,7 @@
               ? negState.status === "WALKED_AWAY"
                 ? `<div class="tiny text-bad font-bold" style="margin-top:2px">❌ 협상 결렬 (${negState.round}/${negState.maxRounds}차)</div>`
                 : negState.status === "COUNTERED" && negState.lastCounterOffer
-                ? `<div class="tiny" style="margin-top:2px;color:#f59e0b;font-weight:700">💬 ${negState.round}/${negState.maxRounds}차 역제안: ${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}</div>`
+                ? `<div class="tiny" style="margin-top:2px;color:var(--warn);font-weight:700">💬 ${negState.round}/${negState.maxRounds}차 역제안: ${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}</div>`
                 : `<div class="tiny text-good" style="margin-top:2px">협상 진행중 (${negState.round}/${negState.maxRounds}차)</div>`
               : "";
 
@@ -1799,11 +2071,11 @@
                     : prof.negotiationStatus === "REJECTED_WARNING"
                       ? `<span class="text-bad font-bold">⚠️ 협상 난항 (최소 ${fmtMoney(prof.minAcceptSalary)} 요구)</span>`
                       : prof.hasUpperLeagueOffer
-                        ? `<span style="color:#f59e0b;font-weight:700">🔥 상위리그 오퍼 경쟁 중 (${esc(prof.suitorLeague)} ${esc(prof.suitorClub)})</span>`
+                        ? `<span style="color:var(--warn);font-weight:700">🔥 상위리그 오퍼 경쟁 중 (${esc(prof.suitorLeague)} ${esc(prof.suitorClub)})</span>`
                         : `<span class="muted">단독 재계약 협상 대기</span>`;
 
                 return `
-                  <div class="scout-card" style="border-left:4px solid ${keep ? "var(--good)" : "rgba(148,163,184,0.35)"}">
+                  <div class="scout-card" style="border-left:4px solid ${keep ? "var(--good)" : "var(--border)"}">
                     <div class="scout-card-head">
                       <span class="pos-code">${esc(fp.pos)}</span>
                       <strong>${esc(fp.name)}</strong>
@@ -1866,7 +2138,7 @@
       aqBox.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">
           <div>
-            <h3 style="font-size:14.5px;margin:0;color:#38bdf8">🌏 KBO 아시아 쿼터제 특별 영입 (구단당 1명 별도 보유 · 가성비 즉시전력)</h3>
+            <h3 style="font-size:14.5px;margin:0;color:var(--est)">🌏 KBO 아시아 쿼터제 특별 영입 (구단당 1명 별도 보유 · 가성비 즉시전력)</h3>
             <div class="tiny">기존 외국인 선수 3인 쿼터와 별개로 아시아야구연맹(일본·대만·호주) 소속 선수를 구단당 1명 추가 등록할 수 있습니다.</div>
           </div>
         </div>
@@ -1882,7 +2154,7 @@
                   <span class="muted">(${esc(c.leagueLabel)} · ${c.age}세 · ${esc(c.handedness)})</span>
                 </div>
                 <div class="scout-metrics tnum">
-                  <span>추정 OVR: <strong>${esc(c.ovrRange)}</strong> (실제 ${c.trueOvr})</span>
+                  <span><span class="it it-est">추정</span> OVR <strong class="est-val">${esc(fmtRange(c.ovrRange))}</strong></span>
                   <span class="sep">·</span>
                   <span>영입 총액: <strong>${fmtMoney(c.expectedCost)}</strong></span>
                 </div>
@@ -1922,7 +2194,7 @@
               <td><span class="pos-code pos-${c.type}">${esc(c.pos)}</span></td>
               <td><strong>${esc(c.name)}</strong> (${c.origin}/${c.nationality} · ${pObj ? esc(fmtHand(pObj)) : ""})</td>
               <td class="tnum">${c.age}세</td>
-              <td class="tnum font-bold">${esc(c.ovrRange)}</td>
+              <td class="tnum font-bold est-val">${esc(fmtRange(c.ovrRange))}</td>
               <td class="tnum">${statStr}</td>
               <td class="tnum">${fmtMoney(c.expectedSalary)}</td>
               <td>
@@ -1997,10 +2269,10 @@
           const checked = selectedIds.includes(p.id);
           const isFor = Boolean((p.nationality && p.nationality !== "KOR") || p.isAsianQuarter);
           const natTag = isFor
-            ? `<span class="inline-tag" style="background:rgba(245,158,11,0.18);color:#f59e0b">${p.isAsianQuarter ? `아시아쿼터(${esc(p.nationality)})` : `외국인(${esc(p.nationality)})`}</span>`
-            : `<span class="inline-tag" style="background:rgba(34,197,94,0.15);color:#22c55e">내국인(KOR)</span>`;
+            ? `<span class="inline-tag" style="background:var(--warn-soft);color:var(--warn)">${p.isAsianQuarter ? `아시아쿼터(${esc(p.nationality)})` : `외국인(${esc(p.nationality)})`}</span>`
+            : `<span class="inline-tag" style="background:var(--good-soft);color:var(--good)">내국인(KOR)</span>`;
           return `
-            <label style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-bottom:1px solid rgba(148,163,184,0.14);cursor:pointer;background:${checked ? "rgba(37,99,235,0.16)" : "transparent"}">
+            <label style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-bottom:1px solid var(--surface-subtle);cursor:pointer;background:${checked ? "var(--accent-soft)" : "transparent"}">
               <span>
                 <input type="checkbox" ${attrName}="${esc(p.id)}" ${checked ? "checked" : ""}>
                 <span class="pos-code pos-${p.type}">${esc(p.pos)}</span>
@@ -2073,7 +2345,7 @@
 
       boxEl.innerHTML = `
         <!-- [감독 요구 및 프런트 갈등 외압] 정규시즌 핀포인트 베테랑 수혈 공식 요청 문서 (TRADE_DIRECTIVE) -->
-        <div class="report-box" style="margin-bottom:12px;border-left:4px solid ${activeDirective ? "#f59e0b" : "#38bdf8"}">
+        <div class="report-box" style="margin-bottom:12px;border-left:4px solid ${activeDirective ? "var(--warn)" : "var(--est)"}">
           <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
             <div>
               <strong>📄 [현장 감독 트레이드 공식 문서 (TRADE_DIRECTIVE)]</strong>
@@ -2153,7 +2425,7 @@
                 <span class="sep">·</span>
                 <span>📤 우리 제시: <strong class="text-good">${esc(myPkgSummary)}</strong></span>
                 <span style="margin:0 6px">⇄</span>
-                <span>📥 상대 요구(${esc(partnerTeam.name)}): <strong style="color:#38bdf8">${esc(targetPkgSummary)}</strong></span>
+                <span>📥 상대 요구(${esc(partnerTeam.name)}): <strong style="color:var(--est)">${esc(targetPkgSummary)}</strong></span>
               </div>
               <div class="tnum tiny" style="margin-top:4px">
                 <strong>[AI 단장 판정: ${esc(evalRes.reactionLabel || "카드 선택 대기")}]</strong>
@@ -2176,7 +2448,7 @@
           <div class="panel" style="margin-bottom:0">
             <h3 style="font-size:14px;margin:0 0 8px">📤 Step 2-A. 우리 구단 (${esc(userTeam.name)} · ${esc(fmtMascot(userTeam.id))}) 보낼 선수 선택</h3>
             <div class="tiny muted" style="margin-bottom:6px">1) 보낼 선수 체크 (최대 3명 — 현재 ${STATE.tradeMyPlayerIds.length}명 선택됨)</div>
-            <div style="max-height:220px;overflow-y:auto;border:1px solid rgba(148,163,184,0.22);border-radius:8px;margin-bottom:10px">
+            <div style="max-height:220px;overflow-y:auto;border:1px solid var(--surface-subtle);border-radius:8px;margin-bottom:10px">
               ${renderPlayerSelectRows(myRoster, STATE.tradeMyPlayerIds, "data-trade-my-player")}
             </div>
 
@@ -2199,7 +2471,7 @@
           <div class="panel" style="margin-bottom:0">
             <h3 style="font-size:14px;margin:0 0 8px">📥 Step 2-B. 상대 구단 (${esc(partnerTeam.name)} · ${esc(fmtMascot(partnerTeam.id))}) 영입할 선수 선택</h3>
             <div class="tiny muted" style="margin-bottom:6px">1) 데려올 선수 체크 (최대 3명 — 현재 ${STATE.tradeTargetPlayerIds.length}명 선택됨)</div>
-            <div style="max-height:220px;overflow-y:auto;border:1px solid rgba(148,163,184,0.22);border-radius:8px;margin-bottom:10px">
+            <div style="max-height:220px;overflow-y:auto;border:1px solid var(--surface-subtle);border-radius:8px;margin-bottom:10px">
               ${renderPlayerSelectRows(partnerRoster, STATE.tradeTargetPlayerIds, "data-trade-target-player")}
             </div>
 
@@ -2225,7 +2497,7 @@
         expEl.innerHTML = "";
       } else {
         expEl.innerHTML = `
-          <div class="report-box" style="border-left:4px solid #38bdf8">
+          <div class="report-box" style="border-left:4px solid var(--est)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
               <strong>🔍 타구단 단장 역제안(트레이드 오퍼) 탐색 결과 (${offers.length}건)</strong>
               <span class="tiny muted">마음에 드는 제안을 선택해 협상 테이블에 불러오거나 즉시 수락할 수 있습니다.</span>
@@ -2422,7 +2694,7 @@
         const pct = Math.min(100, Math.round((activeCamp.progressDays / activeCamp.durationDays) * 100));
         const remDays = Math.max(1, activeCamp.durationDays - activeCamp.progressDays);
         campRepEl.innerHTML = `
-          <div class="report-box" style="border-left:4px solid #38bdf8">
+          <div class="report-box" style="border-left:4px solid var(--est)">
             <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
               <div>
                 <strong style="font-size:14px">⛺ [${esc(activeCamp.locationName)}] 스프링캠프 전지훈련 진행 중 (${activeCamp.progressDays} / ${activeCamp.durationDays}일차 · ${pct}%)</strong>
@@ -2435,8 +2707,8 @@
                 <button type="button" class="btn-xs primary" data-camp-advance-days="${remDays}">⏩ 캠프 귀국일까지 진행 (+${remDays}일 · 훈련 결과 확인)</button>
               </div>
             </div>
-            <div style="margin:10px 0;height:8px;background:rgba(148,163,184,0.2);border-radius:999px;overflow:hidden">
-              <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#38bdf8,#22c55e);transition:width 0.25s"></div>
+            <div style="margin:10px 0;height:8px;background:var(--surface-subtle);border-radius:999px;overflow:hidden">
+              <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,var(--est),var(--good));transition:width 0.25s"></div>
             </div>
             <div class="tiny">
               ${(activeCamp.dailyLogs || [])
@@ -2560,7 +2832,7 @@
     container.innerHTML = `
       <div style="display:grid;gap:16px">
         <!-- [1] 가을야구 포스트시즌 계단식 토너먼트 (10월 10일 가을야구 개막 시 발동) -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="1" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">1. 🏆 KBO 포스트시즌 계단식 토너먼트 (와일드카드 → 준PO → PO → 한국시리즈)</h3>
@@ -2582,10 +2854,10 @@
                    ✅ <strong>[${ctx.currentYear} KBO 포스트시즌 완료]</strong> 한국시리즈 챔피언: <strong>${esc(thisYearPs.championTeamName)}</strong> (준우승: ${esc(thisYearPs.runnerUpTeamName)})
                  </div>`
               : psGate.allowed
-              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid #22c55e;background:rgba(34,197,94,0.12)">
+              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good);background:var(--good-soft)">
                    🟢 <strong>[${ctx.currentYear} KBO 가을야구 개막!]</strong> 정규시즌 일정이 마무리되어 포스트시즌 토너먼트를 진행할 수 있습니다. 우측 상단 버튼을 눌러 가을야구를 진행하세요!
                  </div>`
-              : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid #f59e0b;background:rgba(245,158,11,0.1)">
+              : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--warn);background:var(--warn-soft)">
                    🔒 <strong>[가을야구 개막 대기 · D-${psGate.daysRemaining}일]</strong> 포스트시즌은 페넌트레이스 종료 후 <strong>${ctx.currentYear}년 10월 10일</strong>에 개막합니다. (현재 날짜: ${esc(ctx.currentDate)})
                  </div>`
           }
@@ -2607,7 +2879,7 @@
         </div>
 
         <!-- [2] KBO 2차 드래프트 (격년 11월 5일 개막 · 신인드래프트처럼 기간 도래 시 지명) -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="2" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">2. 🔄 KBO 2차 드래프트 (격년 11월 5일 개막 · 35인 보호선수 외 1~3R 양도금 지명)</h3>
@@ -2631,14 +2903,14 @@
                    ✅ <strong>[${ctx.currentYear} KBO 2차 드래프트 완료]</strong> 35인 보호명단 외 총 <strong>${thisYearBd.totalSelected}명</strong> 구단 간 지명 및 양도금 이적이 완료되었습니다.
                  </div>`
               : !bdGate.isBiennialYear
-              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid #64748b">
+              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--text-faint)">
                    🔒 <strong>[${ctx.currentYear}년 2차 드래프트 격년 휴식기]</strong> KBO 2차 드래프트는 격년(홀수 해: 2025·2027·2029년) <strong>11월 5일</strong>에 개최됩니다.
                  </div>`
               : bdGate.allowed
-              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid #22c55e;background:rgba(34,197,94,0.12)">
+              ? `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--good);background:var(--good-soft)">
                    🟢 <strong>[${ctx.currentYear} KBO 2차 드래프트 지명 기간 개막!]</strong> 11월 5일 공식 지명일이 도래했습니다! 아래 <strong>[타 9개 구단 35인 보호 제외(비보호 노출) 후보 명단]</strong>에서 원하는 선수를 직접 지명하거나 우측 상단 <strong>'🔄 ${ctx.currentYear} 2차 드래프트 1~3R 지명 진행'</strong> 버튼을 누르세요. (11월 14일 마감 시 자동 진행)
                  </div>`
-              : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid #f59e0b;background:rgba(245,158,11,0.1)">
+              : `<div class="weekly-summary-banner" style="margin-bottom:8px;border-left:4px solid var(--warn);background:var(--warn-soft)">
                    🔒 <strong>[2차 드래프트 지명 잠금 · D-${bdGate.daysRemaining}일]</strong> ${ctx.currentYear} KBO 2차 드래프트는 포스트시즌 종료 후 <strong>${ctx.currentYear}년 11월 5일</strong>에 공식 개막합니다. 개막 전까지 하단 <strong>[35인 보호선수 명단]</strong>을 정비하고 타 구단 비보호 예상 후보를 확인하세요.
                  </div>`
           }
@@ -2717,7 +2989,7 @@
         </div>
 
         <!-- [3] 상무 피닉스 병역 관리 시스템 -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="3" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">3. 🪖 상무 피닉스 야구단 병역 보류 시스템 (18개월 복무 · 실전 성장 · 정원/페이롤 제외)</h3>
@@ -2766,7 +3038,7 @@
         </div>
 
         <!-- [4] 구단 인프라 & R&D 3대 시설 투자 (Lv.1~5) -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="4" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">4. 🔬 구단 인프라 &amp; R&amp;D 3대 시설 투자 (Lv.1 ~ Lv.5 영구 버프)</h3>
@@ -2777,7 +3049,7 @@
         </div>
 
         <!-- [5] 샐러리캡(경쟁균형세) & 비FA 다년 연장 계약 -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="5" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">5. ⚖️ KBO 샐러리캡(경쟁균형세 · 올해 상한 ${fmtMoney(capLimit)}) &amp; 비FA 다년 연장 계약</h3>
@@ -2794,7 +3066,7 @@
         </div>
 
         <!-- [6] [PART 5-1] KBO-MLB 포스팅 시스템 (간판 스타 해외 진출 & +100억~300억 이적료 유입) -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="6" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">6. ✈️ KBO-MLB 포스팅 시스템 (리그 최정상급 스타 해외 진출 &amp; +100억~300억 이적료 유입)</h3>
@@ -2843,7 +3115,7 @@
         </div>
 
         <!-- [7] [PART 5-2] 홈구장 리모델링 및 파크 팩터 개조 -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="7" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">7. 🏟️ 홈구장 리모델링 및 파크 팩터 개조 (펜스 거리 · 담장 높이 설계)</h3>
@@ -2873,7 +3145,7 @@
         </div>
 
         <!-- [8] [PART 5-3] 2군 맞춤형 육성 가이드라인 (선수별 집중 과제 지정) -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="8" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">8. 🎯 2군 맞춤형 육성 가이드라인 (구속 · 제구 · 신구종 · 선구안 · 파워 집중 과제)</h3>
@@ -2912,7 +3184,7 @@
         </div>
 
         <!-- [9] [PART 5-4] 선수 사기(Morale) & 트레이드 공식 요구 관리 -->
-        <div class="panel" style="margin-bottom:0">
+        <div data-f5="9" class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
               <h3 class="panel-title" style="font-size:15px">9. 💬 라커룸 케미스트리 · 선수 사기(Morale) &amp; 트레이드 공식 요구 관리</h3>
@@ -2923,7 +3195,7 @@
             ${
               ext.getMoraleIssuePlayers(userTeam).slice(0, 6).map(
                 (mp) => `
-                <div class="scout-card" style="border-left:4px solid ${mp.tradeDemand ? "var(--bad)" : "#f59e0b"}">
+                <div class="scout-card" style="border-left:4px solid ${mp.tradeDemand ? "var(--bad)" : "var(--warn)"}">
                   <div class="scout-card-head">
                     <span class="pos-code">${esc(mp.pos)}</span>
                     <strong>${esc(mp.name)}</strong>
@@ -2955,7 +3227,7 @@
           const pState = ext.getTeamProtectionState(ctx, userTeam.id, pMode);
           if (!pState) return "";
           return `
-            <div class="panel" style="margin-bottom:0">
+            <div data-f5="10" class="panel" style="margin-bottom:0">
               <div class="panel-head">
                 <div>
                   <h3 class="panel-title" style="font-size:15px">10. 🛡️ FA 20인/25인 &amp; 2차 드래프트 35인 보호명단 수동 작성 및 AI 심리전</h3>
@@ -3030,7 +3302,7 @@
           const cands = mc.REPLACEMENT_MANAGER_CANDIDATES || [];
 
           return `
-            <div class="panel" style="margin-bottom:0;border:1px solid ${st.managerTrust <= 20 ? "var(--bad)" : "rgba(148,163,184,0.28)"}">
+            <div data-f5="11" class="panel" style="margin-bottom:0;border:1px solid ${st.managerTrust <= 20 ? "var(--bad)" : "var(--border)"}">
               <div class="panel-head">
                 <div>
                   <h3 class="panel-title" style="font-size:15px">11. 👔 감독 요구 및 프런트 갈등 외압 시스템 (KBO_GM.RealisticGM · KBO_GM.ManagerConflict)</h3>
@@ -3057,8 +3329,8 @@
                     팬 민심: <strong class="tnum">${userTeam.fanRatio || 55}</strong>
                   </div>
                 </div>
-                <div style="margin-top:8px;height:8px;background:rgba(148,163,184,0.22);border-radius:999px;overflow:hidden">
-                  <div style="width:${st.conflictGauge}%;height:100%;background:${st.managerTrust <= 20 ? "#ef4444" : st.managerTrust <= 45 ? "#f59e0b" : "#22c55e"};transition:width 0.25s"></div>
+                <div style="margin-top:8px;height:8px;background:var(--surface-subtle);border-radius:999px;overflow:hidden">
+                  <div style="width:${st.conflictGauge}%;height:100%;background:${st.managerTrust <= 20 ? "var(--bad)" : st.managerTrust <= 45 ? "var(--warn)" : "var(--good)"};transition:width 0.25s"></div>
                 </div>
                 <div class="tiny" style="margin-top:6px">
                   <strong>현재 갈등 단계:</strong> <span class="${st.crisisStage >= 1 ? "text-bad font-bold" : "text-good"}">${esc(stageLabels[st.crisisStage] || stageLabels[0])}</span>
@@ -3088,7 +3360,7 @@
               }
 
               <!-- [3단계 파국] 단장의 감독 경질 선택지 (잔여 계약 위약금 예산 차감) -->
-              <div class="report-box" style="margin-bottom:10px;border-left:4px solid ${st.canFireManager ? "var(--bad)" : "rgba(148,163,184,0.35)"}">
+              <div class="report-box" style="margin-bottom:10px;border-left:4px solid ${st.canFireManager ? "var(--bad)" : "var(--border)"}">
                 <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px">
                   <div>
                     <strong>🪓 [파국 3단계 · 단장 직권 감독 경질 및 신임 감독 선임]</strong>
@@ -3172,7 +3444,7 @@
             userTeam.roster1G[0];
 
           return `
-            <div class="panel" style="margin-bottom:0;border:1px solid rgba(56,189,248,0.4)">
+            <div data-f5="12" class="panel" style="margin-bottom:0;border:1px solid var(--est)">
               <div class="panel-head">
                 <div>
                   <h3 class="panel-title" style="font-size:15px">12. 📊 단장(GM) 직무 보고서 기반 5대 리얼리즘 메카닉 (KBO_GM.RealisticGM)</h3>
@@ -3192,7 +3464,7 @@
 
               <div style="display:grid;gap:12px">
                 <!-- (1) 단장 vs 감독 권력 갈등 & '지시완/허문회' 기용 거부 시스템 -->
-                <div class="report-box" style="border-left:4px solid #f59e0b">
+                <div class="report-box" style="border-left:4px solid var(--warn)">
                   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
                     <div>
                       <strong>① [GM_MANAGER_CONFLICT] 감독 아키타입 &amp; '지시완/허문회' 기용 거부(벤치 방치) 딜레마</strong>
@@ -3214,7 +3486,7 @@
                 </div>
 
                 <!-- (2) BATNA 다안건 연봉 협상 & 1월 말 연봉조정위원회 -->
-                <div class="report-box" style="border-left:4px solid #38bdf8">
+                <div class="report-box" style="border-left:4px solid var(--est)">
                   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
                     <div>
                       <strong>② [SALARY_ARBITRATION] BATNA 다안건 연봉 협상 &amp; 1월 말 연봉조정위원회 판결</strong>
@@ -3232,7 +3504,7 @@
                 </div>
 
                 <!-- (3) 예비 FA(faYears === 7) 보상금 뻥튀기 사전 방어 전략 -->
-                <div class="report-box" style="border-left:4px solid #22c55e">
+                <div class="report-box" style="border-left:4px solid var(--good)">
                   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
                     <div>
                       <strong>③ [FA_PREEMPTIVE_BUMP] 예비 FA(faYears=7) 보상금 뻥튀기 사전 방어 전략 (150~200% 인상)</strong>
@@ -3265,7 +3537,7 @@
                 </div>
 
                 <!-- (4) 7월 31일 트레이드 마감일 Buyer / Seller 스탠스 엔진 -->
-                <div class="report-box" style="border-left:4px solid #a855f7">
+                <div class="report-box" style="border-left:4px solid var(--opinion)">
                   <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
                     <div>
                       <strong>④ [DEADLINE_STANCE] 7월 31일 트레이드 마감일 Buyer / Seller 스탠스 엔진 (현 순위 ${myDeadlineRow.rank}위 · ${esc(myDeadlineRow.stanceLabel)})</strong>
@@ -3283,7 +3555,7 @@
                             .slice(0, 3)
                             .map(
                               (dl) => `
-                              <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:rgba(148,163,184,0.1);border-radius:6px">
+                              <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:6px 10px;background:var(--surface-subtle);border-radius:6px">
                                 <span class="tiny"><strong>${esc(dl.headline)}</strong></span>
                                 <button type="button" class="btn-xs primary" data-rgm-exec-deadline-deal="${esc(dl.id)}">즉시 마감일 딜 체결</button>
                               </div>
@@ -3572,7 +3844,7 @@
                       <td>${p.origin} / ${p.nationality}</td>
                       <td>${p.pos}</td>
                       <td class="tnum">${p.age}세</td>
-                      <td class="tnum font-bold">${p.scoutError.ovrMin}~${p.scoutError.ovrMax}</td>
+                      <td class="tnum font-bold est-val">${p.scoutError.ovrMin}~${p.scoutError.ovrMax}</td>
                       <td class="tnum">${stat}</td>
                       <td class="tnum font-bold text-good">${(m.war || 0).toFixed(2)}</td>
                       <td class="tnum">${fmtMoney(p.salary)}</td>
@@ -3615,7 +3887,7 @@
                       <td><strong>${esc(p.name)}</strong> <span class="tiny muted">(${esc(fmtHand(p))})</span></td>
                       <td>${p.origin === "IND" ? `독립(${esc(p.indClubName || "연천 미라클")})` : p.origin === "HS" ? "고교" : "대학"} (${p.age}세)</td>
                       <td>${p.pos}</td>
-                      <td class="tnum">${p.scoutError.ovrMin}~${p.scoutError.ovrMax}</td>
+                      <td class="tnum est-val">${p.scoutError.ovrMin}~${p.scoutError.ovrMax}</td>
                       <td class="tiny">${esc(proj.tournamentNote || "정규 주말리그 순항 중")}</td>
                       <td><strong>${esc(proj.tierLabel)}</strong></td>
                     </tr>
@@ -3860,7 +4132,7 @@
 
     $("gmModalTitle").textContent = `👔 ${ev.title}`;
     $("gmModalBody").innerHTML = `
-      <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid #f59e0b">
+      <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid var(--warn)">
         <div>
           <strong>발신: ${esc(userTeam.name)} 1군 감독 ${esc(ev.managerName)}</strong>
           <span class="sep">·</span>
@@ -4181,7 +4453,7 @@
               </div>
             </div>
 
-            <div class="report-box" style="border-left:4px solid #38bdf8">
+            <div class="report-box" style="border-left:4px solid var(--est)">
               <strong>⚖️ BATNA 다안건 연봉 협상 &amp; 1월 말 연봉조정위원회</strong>
               <div class="tiny muted" style="margin:6px 0 10px">
                 보장 출전 타석/이닝 + 성과 옵션 + 비FA 다년 전환 패키지 협상 또는 연봉조정위원회 회부를 결단합니다.
@@ -4211,7 +4483,7 @@
                 .slice(0, 6)
                 .map(
                   (p) => `
-                  <div class="scout-card" style="border-left:4px solid ${p.tradeDemand ? "var(--bad)" : "#f59e0b"}">
+                  <div class="scout-card" style="border-left:4px solid ${p.tradeDemand ? "var(--bad)" : "var(--warn)"}">
                     <div class="scout-card-head">
                       <strong>${esc(p.name)} (${esc(p.pos)} · ${p.age}세 · ${esc(p.status)})</strong>
                       <span class="scout-rank-tag ${p.tradeDemand ? "text-bad" : ""}">사기 ${p.morale} ${p.tradeDemand ? "· 트레이드 요구" : ""}</span>
@@ -4533,6 +4805,8 @@
       if (btn) btn.classList.toggle("active", STATE.activeTab === t);
     });
 
+    if (!(STATE.activeTab === "offseason" && STATE.offseasonSubTab === "front5")) STATE.front5Focus = null;
+
     if (STATE.activeTab === "pennant") renderPennantTab();
     else if (STATE.activeTab === "roster") renderRosterTab();
     else if (STATE.activeTab === "offseason") renderOffseasonTab();
@@ -4540,6 +4814,10 @@
     else if (STATE.activeTab === "manager") renderManagerTab();
     else if (STATE.activeTab === "records") renderRecordsTab();
     else if (STATE.activeTab === "storage") renderStorageTab();
+
+    if (STATE.activeTab === "offseason" && STATE.offseasonSubTab === "front5") applyFront5Focus();
+    renderAreaNav();
+    stripTitleDecor($(`tab_${STATE.activeTab}`));
   }
 
   function advanceDaysUI(days = 1) {
@@ -4561,11 +4839,12 @@
         showToast(`[9월 23일] ${ctx.currentYear} KBO 신인 드래프트 지명 기간이 개막했습니다!`, "good");
       } else if (res.postseasonWeekTriggered) {
         STATE.activeTab = "pennant";
-        showToast(`🏆 [10월 10일 가을야구 개막] ${ctx.currentYear} KBO 포스트시즌(WC → 준PO → PO → KS)이 개막했습니다!`, "good");
+        showToast(`[10월 10일 가을야구 개막] ${ctx.currentYear} KBO 포스트시즌(WC → 준PO → PO → KS)이 개막했습니다!`, "good");
       } else if (res.secondaryDraftTriggered) {
         STATE.activeTab = "offseason";
         STATE.offseasonSubTab = "front5";
-        showToast(`🔄 [11월 5일 2차 드래프트 개막] ${ctx.currentYear} KBO 2차 드래프트(35인 보호 외 지명) 기간이 개막했습니다!`, "good");
+        STATE.front5Focus = [2];
+        showToast(`[11월 5일 2차 드래프트 개막] ${ctx.currentYear} KBO 2차 드래프트(35인 보호 외 지명) 기간이 개막했습니다!`, "good");
       } else if (res.dailyEvents && res.dailyEvents.length) {
         showToast(`${res.koreanDate} (${days}일 경과) — ${res.dailyEvents[0].message}`, "info");
       } else {
@@ -4591,12 +4870,132 @@
     advanceDaysUI(count * 7);
   }
 
+  /* 모달 접근성: 열릴 때 포커스 이동 · Tab 순환 · Esc 닫기 · 닫힐 때 원래 위치로 포커스 복귀
+     (모달을 여는 곳이 많아서 backdrop 의 hidden 속성 변화를 감시해 한곳에서 처리) */
+  let modalReturnFocus = null;
+  function bindModalA11y() {
+    const backdrop = $("gmModalBackdrop");
+    if (!backdrop || typeof MutationObserver === "undefined") return;
+    const focusables = () =>
+      Array.from(backdrop.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])')).filter(
+        (el) => el.offsetParent !== null
+      );
+    new MutationObserver(() => {
+      if (!backdrop.hidden) {
+        if (!backdrop.contains(document.activeElement)) {
+          modalReturnFocus = document.activeElement;
+          const closeBtn = $("gmModalClose");
+          if (closeBtn) closeBtn.focus({ preventScroll: true });
+        }
+        stripTitleDecor(backdrop);
+      } else if (modalReturnFocus) {
+        const target = modalReturnFocus;
+        modalReturnFocus = null;
+        if (document.contains(target) && typeof target.focus === "function") target.focus({ preventScroll: true });
+      }
+    }).observe(backdrop, { attributes: true, attributeFilter: ["hidden"] });
+    backdrop.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab") return;
+      const list = focusables();
+      if (!list.length) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  function closeSystemMenu() {
+    const menu = $("systemMenu");
+    const btn = $("btnSystemMenu");
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  function bindFrontOfficeNav() {
+    // 상단 6개 업무 영역
+    document.querySelectorAll("[data-area]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const area = AREAS.find((a) => a.key === btn.dataset.area);
+        if (!area) return;
+        const cur = currentAreaSub();
+        // 같은 영역을 다시 누르면 그대로, 다른 영역이면 첫 하위 메뉴로
+        const sub = cur.area.key === area.key && cur.sub ? cur.sub : area.subs[0];
+        navigateTo({ tab: sub.tab, off: sub.off, f5: sub.f5 });
+      });
+    });
+
+    // 설정 메뉴 (저장·테마·슬롯 화면·개발 도구)
+    const menuBtn = $("btnSystemMenu");
+    const menu = $("systemMenu");
+    if (menuBtn && menu) {
+      menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = menu.hidden;
+        menu.hidden = !open;
+        menuBtn.setAttribute("aria-expanded", String(open));
+        if (open) {
+          const first = menu.querySelector("button");
+          if (first) first.focus();
+        }
+      });
+      menu.addEventListener("click", (e) => {
+        if (e.target.closest("button")) closeSystemMenu();
+      });
+      document.addEventListener("click", (e) => {
+        if (!menu.hidden && !e.target.closest(".menu-wrap")) closeSystemMenu();
+      });
+    }
+
+    const notifBtn = $("btnNotifInbox");
+    if (notifBtn) notifBtn.addEventListener("click", openNotifInbox);
+
+    const guideBtn = $("btnOpenGuideInGame");
+    if (guideBtn) guideBtn.addEventListener("click", () => {
+      const lobbyGuide = $("btnOpenGuideModal");
+      if (lobbyGuide) lobbyGuide.click();
+    });
+
+    // Esc: 설정 메뉴 → 모달 순서로 닫기
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      const menuEl = $("systemMenu");
+      if (menuEl && !menuEl.hidden) {
+        closeSystemMenu();
+        if (menuBtn) menuBtn.focus();
+        return;
+      }
+      const bd = $("gmModalBackdrop");
+      if (bd && !bd.hidden) bd.hidden = true;
+    });
+
+    // 정렬 가능한 표 머리글: 키보드(Enter/Space)로도 정렬
+    document.querySelectorAll("th[data-roster-sort]").forEach((th) => {
+      th.tabIndex = 0;
+      th.setAttribute("role", "button");
+      th.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          th.click();
+        }
+      });
+    });
+
+    bindModalA11y();
+  }
+
   function bindEvents() {
-    // 메인 탭 전환
+    bindFrontOfficeNav();
+
+    // 메인 탭 전환 (설정 메뉴의 '저장 · 불러오기' 등)
     document.querySelectorAll("[data-main-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        STATE.activeTab = btn.dataset.mainTab;
-        renderAll();
+        navigateTo({ tab: btn.dataset.mainTab });
       });
     });
 
@@ -4725,6 +5124,7 @@
             "gm-nonfa.js",
             "gm-retro.js",
             "gm-balance.js",
+            "gm-frontoffice.js",
             "gm-ui.js"
           ];
           const codes = await Promise.all(
@@ -5197,6 +5597,38 @@
 
     // 문서 위임 클릭 핸들러 (동적 생성 버튼들 처리)
     document.addEventListener("click", async (e) => {
+      // 하위 메뉴
+      const subLink = e.target.closest("[data-area-sub]");
+      if (subLink) {
+        const [ak, sk] = subLink.dataset.areaSub.split(":");
+        const area = AREAS.find((a) => a.key === ak);
+        const sub = area && area.subs.find((x) => x.key === sk);
+        if (sub) navigateTo({ tab: sub.tab, off: sub.off, f5: sub.f5 }, { focus: false });
+        return;
+      }
+      // 일정·마감 항목 → 해당 화면
+      const gotoEl = e.target.closest("[data-goto-tab]");
+      if (gotoEl) {
+        const f5 = gotoEl.dataset.gotoF5 ? gotoEl.dataset.gotoF5.split(",").map(Number) : null;
+        const tg = resolveTaskTarget(null, gotoEl.dataset.gotoTab, gotoEl.dataset.gotoSub);
+        if (f5) tg.f5 = f5;
+        navigateTo(tg);
+        return;
+      }
+      // 받은 보고 출처 필터
+      const inboxFilterBtn = e.target.closest("[data-inbox-filter]");
+      if (inboxFilterBtn) {
+        STATE.inboxFilter = inboxFilterBtn.dataset.inboxFilter;
+        renderPennantTab();
+        return;
+      }
+      // 알림 닫기
+      if (e.target.closest(".toast-close")) {
+        const t = $("gmToast");
+        if (t) t.classList.remove("show");
+        return;
+      }
+
       const matchCard = e.target.closest("[data-match-idx]");
       if (matchCard) {
         openMatchBoxModal(Number(matchCard.dataset.matchIdx));
@@ -5435,7 +5867,7 @@
 
           $("gmModalTitle").textContent = `🤝 [실전 FA 협상 테이블] ${p.name} (${p.pos}, ${p.age}세 · ${prof.faGrade}등급 · ${isHomeFA ? "원소속 우선협상 대상" : `${p.formerTeamName || p.formerTeamId} 출신 외부 FA`})`;
           $("gmModalBody").innerHTML = `
-            <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid ${isPriorityRestricted ? "#ef4444" : "#22c55e"}">
+            <div class="weekly-summary-banner" style="margin-bottom:12px;border-left:4px solid ${isPriorityRestricted ? "var(--bad)" : "var(--good)"}">
               <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px">
                 <div>
                   <strong>현재 시장 단계: ${phase === "PRIORITY" ? "🔒 1단계 원소속구단 우선협상 기간" : "🔓 2단계 전 구단 완전 개방(Open Market)"}</strong>
@@ -5489,7 +5921,7 @@
                 <div class="tiny muted" style="margin-top:4px">${esc(evalRes.playerComment)}</div>
                 ${
                   negState.lastCounterOffer
-                    ? `<div class="tiny" style="margin-top:6px;padding:6px 8px;background:rgba(245,158,11,0.12);border-radius:6px;color:#f59e0b">
+                    ? `<div class="tiny" style="margin-top:6px;padding:6px 8px;background:var(--warn-soft);border-radius:6px;color:var(--warn)">
                         <strong>💬 직전 에이전트 역제안 조건:</strong> ${negState.lastCounterOffer.Y}년 총액 <strong>${fmtMoney(negState.lastCounterOffer.totalManwon)}</strong> (계약금 ${fmtMoney(negState.lastCounterOffer.DP)} · 연봉총액 ${fmtMoney(negState.lastCounterOffer.BS)} · 옵션 ${fmtMoney(negState.lastCounterOffer.Opt)})
                        </div>`
                     : ""
@@ -5502,7 +5934,7 @@
                 </button>
                 ${
                   negState.lastCounterOffer && negState.status !== "WALKED_AWAY"
-                    ? `<button type="button" class="btn-sm primary" style="background:#16a34a" data-fa-accept-counter="${p.id}">
+                    ? `<button type="button" class="btn-sm primary" style="background:var(--good)" data-fa-accept-counter="${p.id}">
                         ⚡ 에이전트 역제안(${negState.lastCounterOffer.Y}년 ${fmtMoney(negState.lastCounterOffer.totalManwon)}) 즉시 수용·타결
                        </button>`
                     : ""
@@ -5778,6 +6210,7 @@
       const delSlotBtn = e.target.closest("[data-del-slot]");
       if (delSlotBtn) {
         const slotId = delSlotBtn.dataset.delSlot;
+        if (!window.confirm("이 슬롯의 저장 데이터를 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) return;
         await GM.Storage.deleteSave(slotId);
         showToast(`슬롯 '${slotId}' 데이터를 삭제했습니다.`);
         renderStorageTab();
@@ -5834,6 +6267,8 @@
       const relDomBtn = e.target.closest("[data-release-domestic]");
       if (relDomBtn) {
         const pid = relDomBtn.dataset.releaseDomestic;
+        const relP = STATE.ctx.getUserTeam().getAllPlayers().find((x) => x.id === pid);
+        if (!window.confirm(`${relP ? relP.name : "이 선수"}을(를) 방출합니다. 되돌릴 수 없습니다. 계속할까요?`)) return;
         const res = GM.Setup.releaseDomesticPlayer(STATE.ctx, STATE.ctx.userTeamId, pid);
         if (res.ok) {
           showToast(res.summary, "info");
@@ -5893,6 +6328,7 @@
       const relForBtn = e.target.closest("[data-release-foreign]");
       if (relForBtn) {
         const pid = relForBtn.dataset.releaseForeign;
+        if (!window.confirm("외국인 선수를 방출하면 리그에서 영구 퇴출됩니다. 되돌릴 수 없습니다. 계속할까요?")) return;
         const res = GM.Setup.releaseForeignPlayer(STATE.ctx, STATE.ctx.userTeamId, pid);
         if (res.ok) {
           STATE.userForeignKeepIds.delete(pid);
@@ -5969,6 +6405,7 @@
       const lobbyClearBtn = e.target.closest("[data-lobby-clear]");
       if (lobbyClearBtn) {
         const slotId = lobbyClearBtn.dataset.lobbyClear;
+        if (!window.confirm("이 슬롯의 저장 데이터를 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) return;
         await GM.Storage.deleteSave(slotId);
         showToast(`슬롯 '${slotId}' 데이터를 비웠습니다.`);
         renderLobbySlots();
@@ -6171,30 +6608,9 @@
       // [PART 2 & 요청 1 해결] 오늘의 할 일 '업무 화면 이동 →' 버튼 클릭 시 해당 메인탭 및 서브탭으로 즉시 전환 및 스크롤 이동
       const gotoBtn = e.target.closest("[data-assistant-goto-tab]");
       if (gotoBtn) {
-        const targetMain = gotoBtn.dataset.assistantGotoTab || "offseason";
-        const targetSub = gotoBtn.dataset.assistantGotoSub || "";
-        STATE.activeTab = targetMain;
-        if (targetSub) {
-          if (targetMain === "roster") {
-            STATE.rosterSubTab = targetSub;
-            document.querySelectorAll("[data-roster-sub]").forEach((b) =>
-              b.classList.toggle("active", b.dataset.rosterSub === targetSub)
-            );
-          } else if (targetMain === "offseason") {
-            STATE.offseasonSubTab = targetSub;
-            document.querySelectorAll("[data-off-sub]").forEach((b) =>
-              b.classList.toggle("active", b.dataset.offSub === targetSub)
-            );
-          } else if (targetMain === "records") {
-            STATE.recordsSubTab = targetSub;
-          }
-        }
-        renderAll();
-        const secEl = $(`tab_${STATE.activeTab}`);
-        if (secEl && typeof secEl.scrollIntoView === "function") {
-          secEl.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-        showToast("선택한 단장 업무 화면으로 이동했습니다.", "info");
+        navigateTo(
+          resolveTaskTarget(gotoBtn.dataset.assistantTaskId, gotoBtn.dataset.assistantGotoTab || "offseason", gotoBtn.dataset.assistantGotoSub || "")
+        );
         return;
       }
 

@@ -24,7 +24,8 @@ const MODULES = [
   "gm-economy.js",
   "gm-nonfa.js",
   "gm-retro.js",
-  "gm-balance.js"
+  "gm-balance.js",
+  "gm-frontoffice.js"
 ];
 
 function parseArgs(argv) {

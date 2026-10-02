@@ -44,10 +44,11 @@
     const today = context.currentDate;
     const y = context.currentYear;
     const items = [];
-    const add = (date, title, detail, kind, tab, subTab) => {
+    // f5: 프런트 심화 패널 안의 섹션 번호 (2 = 2차 드래프트, 5 = 경쟁균형세·비FA, 6 = 포스팅)
+    const add = (date, title, detail, kind, tab, subTab, f5) => {
       const d = dayDiff(date, today);
       if (d < 0 || d > horizonDays) return;
-      items.push({ date, dDay: d, title, detail, kind, tab, subTab, urgent: d <= 7 });
+      items.push({ date, dDay: d, title, detail, kind, tab, subTab, f5: f5 || null, urgent: d <= 7 });
     };
     // 올해와 내년 날짜 모두 검사 (연말 → 연초 마감)
     [y, y + 1].forEach((yr) => {
@@ -59,13 +60,13 @@
       add(`${yr}-10-10`, "포스트시즌 개막", "와일드카드 → 준PO → PO → 한국시리즈", "EVENT", "pennant");
       add(`${yr}-11-04`, "시즌 회고 리포트 도착", "결정 순효과·운·트레이드 장부·드래프트 성과", "EVENT", "records");
       if (g.Extensions && g.Extensions.isBiennialDraftYear && g.Extensions.isBiennialDraftYear(yr)) {
-        add(`${yr}-11-05`, "2차 드래프트", "35인 보호명단 외 지명 (11/14 마감)", "WINDOW", "offseason", "front5");
+        add(`${yr}-11-05`, "2차 드래프트", "35인 보호명단 외 지명 (11/14 마감)", "WINDOW", "offseason", "front5", [2]);
       }
-      add(`${yr}-11-01`, "MLB 포스팅 기간 시작", "12/15까지 · OVR 90+ 또는 능력치 95+ · 7시즌+", "WINDOW", "offseason", "front5");
+      add(`${yr}-11-01`, "MLB 포스팅 기간 시작", "12/15까지 · OVR 90+ 또는 능력치 95+ · 7시즌+", "WINDOW", "offseason", "front5", [6]);
       if (!(off && off.isStoveStepDone && off.isStoveStepDone(context, "salary", yr + 1))) {
         add(`${yr}-12-01`, "연봉 재계약 · FA 공시 마감", "직접 처리하지 않으면 '적정 협상'으로 자동 체결", "DEADLINE", "offseason", "salary");
       }
-      add(`${yr}-12-10`, "경쟁균형세 심사 · 상무 정기 입대", "상한 초과 시 제재금 · 연속 초과 시 1R 지명권 하락", "DEADLINE", "offseason", "front5");
+      add(`${yr}-12-10`, "경쟁균형세 심사 · 상무 정기 입대", "상한 초과 시 제재금 · 연속 초과 시 1R 지명권 하락", "DEADLINE", "offseason", "front5", [5]);
       add(`${yr}-01-15`, "FA 시장 마감", "미계약 FA는 AI 구단 입찰로 정리", "DEADLINE", "offseason", "fa");
       if (!(off && off.isStoveStepDone && off.isStoveStepDone(context, "salary", yr))) {
         add(`${yr}-01-31`, "연봉 재계약 마감", "직접 처리하지 않으면 '적정 협상'으로 자동 체결", "DEADLINE", "offseason", "salary");

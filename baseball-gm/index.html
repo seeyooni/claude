@@ -4,10 +4,10 @@
 
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>나만의 야구 선수 만들기</title>
-  <meta name="description" content="고교 1학년부터 대학, 2군, KBO·NPB 1군을 거쳐 은퇴와 명예의 전당까지 나만의 야구 선수를 육성하는 시뮬레이션 게임">
-  <meta property="og:title" content="나만의 야구 선수 만들기">
-  <meta property="og:description" content="고교 1학년부터 대학, 2군, KBO·NPB 1군을 거쳐 은퇴와 명예의 전당까지 나만의 야구 선수를 육성하는 시뮬레이션 게임">
+  <title>나만의 야구 단장 만들기 — KBO 프런트 오피스</title>
+  <meta name="description" content="KBO 구단 단장이 되어 드래프트·FA·연봉·트레이드·재정을 결정하는 프런트 오피스 시뮬레이션">
+  <meta property="og:title" content="나만의 야구 단장 만들기">
+  <meta property="og:description" content="KBO 구단 단장이 되어 드래프트·FA·연봉·트레이드·재정을 결정하는 프런트 오피스 시뮬레이션">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -639,6 +639,7 @@
     }
     .scout-actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin-top: 4px;
     }
@@ -1114,6 +1115,939 @@
       font-weight: 800;
       font-size: 15px;
     }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       프런트 오피스 디자인 시스템 v2
+       방향: 구단 프런트 오피스 · 차분하고 밀도 높은 데이터 · 강조색은 네이비 하나
+       색은 '의미(정보 유형)' 전용: 확정 · 추정 · 의견 · 결정 · 주의 · 증감
+       (아래 값이 위쪽 v1 토큰을 덮어쓴다. 대비는 WCAG AA 이상)
+       ═══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --bg: #F4F5F7;
+      --surface: #FFFFFF;
+      --surface-subtle: #EEF0F3;
+      --surface-hover: #E8ECF1;
+      --border: #DDE1E6;
+      --border-strong: #8492A6;
+      --text-main: #161B22;
+      --text-muted: #454E5C;
+      --text-faint: #5F6877;
+      --accent: #1D4F91;
+      --accent-hover: #163E73;
+      --accent-soft: #E7EEF8;
+      --on-accent: #FFFFFF;
+      --good: #0F6B3F;
+      --good-soft: #E3F2EA;
+      --bad: #B42318;
+      --bad-soft: #FCEBE9;
+      --warn: #8A5300;
+      --warn-soft: #FDF1DC;
+      /* 정보 유형 */
+      --fact: #161B22;
+      --est: #0B6670;
+      --est-soft: #E2F1F2;
+      --opinion: #5B43A6;
+      --opinion-soft: #EFEBF9;
+      --action: #B42318;
+      --action-soft: #FCEBE9;
+      /* 타입 스케일 */
+      --fs-xs: 12px;
+      --fs-sm: 13px;
+      --fs-md: 14px;
+      --fs-lg: 16px;
+      --fs-xl: 20px;
+      --fs-2xl: 24px;
+      /* 간격 */
+      --sp-1: 4px;
+      --sp-2: 8px;
+      --sp-3: 12px;
+      --sp-4: 16px;
+      --sp-6: 24px;
+      --sp-8: 32px;
+      /* 모서리 · 높이 */
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --e1: 0 1px 2px rgba(22, 27, 34, 0.06);
+      --e2: 0 4px 12px rgba(22, 27, 34, 0.08), 0 1px 3px rgba(22, 27, 34, 0.05);
+      --e3: 0 16px 40px rgba(22, 27, 34, 0.14);
+      --shadow-sm: var(--e1);
+      --font-sans: "Plus Jakarta Sans", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: var(--font-sans);
+    }
+    html[data-theme="dark"] {
+      --bg: #0E1117;
+      --surface: #161B23;
+      --surface-subtle: #1E2530;
+      --surface-hover: #232B38;
+      --border: #2A323F;
+      --border-strong: #5B6B8C;
+      --text-main: #E7EAEE;
+      --text-muted: #AEB6C2;
+      --text-faint: #8A93A1;
+      --accent: #7FAEF0;
+      --accent-hover: #A3C5F5;
+      --accent-soft: #1A2A44;
+      --on-accent: #0E1117;
+      --good: #5BD08E;
+      --good-soft: #14301F;
+      --bad: #FF8A7A;
+      --bad-soft: #3A1B1A;
+      --warn: #F2B54A;
+      --warn-soft: #36290F;
+      --fact: #E7EAEE;
+      --est: #5CC4CC;
+      --est-soft: #11303A;
+      --opinion: #B3A1F0;
+      --opinion-soft: #272240;
+      --action: #FF8A7A;
+      --action-soft: #3A1B1A;
+      --e1: 0 0 0 transparent;
+      --e2: 0 4px 12px rgba(0, 0, 0, 0.4);
+      --e3: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    body {
+      font-size: var(--fs-md);
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+    /* 숫자 정렬은 글꼴 교체 없이 tabular-nums 만 */
+    .tnum,
+    .pos-code {
+      font-family: inherit;
+      font-variant-numeric: tabular-nums lining-nums;
+    }
+    .tiny {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .muted {
+      color: var(--text-muted);
+    }
+
+    /* 접근성: 키보드 포커스 · 본문 바로가기 · 모션 줄이기 */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -48px;
+      z-index: 100;
+      background: var(--accent);
+      color: var(--on-accent);
+      padding: 8px 14px;
+      border-radius: var(--radius-md);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .skip-link:focus {
+      top: 8px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* ── 버튼: 채움 primary 는 화면당 1~2개 ── */
+    .btn-primary,
+    .btn-secondary,
+    .btn-sm,
+    .btn-xs {
+      border-radius: var(--radius-md);
+      font-weight: 600;
+    }
+    .btn-primary,
+    .btn-sm.primary,
+    .btn-xs.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--on-accent);
+    }
+    .btn-primary {
+      font-size: var(--fs-md);
+      padding: 8px 16px;
+    }
+    .btn-secondary {
+      background: var(--surface);
+      font-size: var(--fs-sm);
+      padding: 7px 12px;
+    }
+    .btn-sm {
+      font-size: var(--fs-sm);
+      background: var(--surface);
+    }
+    .btn-xs {
+      font-size: var(--fs-xs);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+    }
+    .btn-sm.ghost,
+    .btn-xs.ghost {
+      border-color: var(--border-strong);
+      color: var(--text-main);
+    }
+    .btn-danger {
+      background: var(--surface);
+      color: var(--bad);
+      border: 1px solid var(--bad);
+    }
+    button:disabled {
+      opacity: 0.55;
+    }
+
+    /* ── 패널 · 표 ── */
+    .panel {
+      border-radius: var(--radius-lg);
+      padding: var(--sp-4) 20px;
+      margin-bottom: var(--sp-4);
+      box-shadow: none;
+    }
+    .panel-head {
+      margin-bottom: var(--sp-3);
+      padding-bottom: var(--sp-2);
+    }
+    .panel-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    h3.panel-title {
+      font-size: 15px !important;
+    }
+    .stat-tile {
+      background: var(--surface);
+    }
+    .stat-label {
+      font-size: var(--fs-xs);
+    }
+    .stat-val {
+      font-size: var(--fs-xl);
+      font-weight: 700;
+    }
+    .gm-table {
+      font-size: var(--fs-sm);
+    }
+    .gm-table th {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      color: var(--text-faint);
+    }
+    .gm-table tbody tr.my-team-row {
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .gm-table th[data-roster-sort] {
+      cursor: pointer;
+    }
+    .subtab-btn {
+      border-radius: var(--radius-md) !important;
+    }
+    .scout-card,
+    .slot-card,
+    .stat-tile,
+    .report-box,
+    .empty-box {
+      border-radius: var(--radius-md);
+    }
+    .modal-card {
+      border-radius: var(--radius-lg);
+      box-shadow: var(--e3);
+    }
+    .modal-backdrop {
+      background: rgba(14, 17, 23, 0.55);
+    }
+
+    /* ── 정보 유형 배지 (색 + 글자 라벨을 항상 같이) ── */
+    .it {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid currentColor;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .it-fact {
+      color: var(--text-muted);
+    }
+    .it-est {
+      color: var(--est);
+      background: var(--est-soft);
+      border-style: dashed;
+    }
+    .it-opinion {
+      color: var(--opinion);
+      background: var(--opinion-soft);
+    }
+    .it-action {
+      color: var(--action);
+      background: var(--action-soft);
+    }
+    .it-warn {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+    .it-good {
+      color: var(--good);
+      background: var(--good-soft);
+    }
+    .est-val {
+      color: var(--est);
+      text-decoration: underline dotted;
+      text-underline-offset: 3px;
+    }
+    .dday {
+      display: inline-block;
+      min-width: 44px;
+      text-align: center;
+      font-weight: 700;
+      font-size: var(--fs-xs);
+      font-variant-numeric: tabular-nums;
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+    }
+    .dday.urgent {
+      background: var(--action-soft);
+      color: var(--action);
+    }
+    .dday.soon {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    /* ── 상단 바: 브랜드 · 6개 업무 영역 · 메뉴 ── */
+    .top-bar {
+      height: 56px;
+      padding: 0 var(--sp-6);
+      box-shadow: var(--e1);
+    }
+    .brand-title {
+      font-size: var(--fs-md);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title .brand-team {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .area-nav {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      height: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .area-nav::-webkit-scrollbar {
+      display: none;
+    }
+    .area-link {
+      position: relative;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 0 12px;
+      font: inherit;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .area-link:hover {
+      color: var(--text-main);
+    }
+    .area-link[aria-current="page"] {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 700;
+    }
+    .area-link .nav-count {
+      display: inline-block;
+      min-width: 18px;
+      margin-left: 4px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: var(--action);
+      color: var(--surface);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+    }
+    .icon-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 34px;
+      min-width: 34px;
+      padding: 0 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .icon-btn:hover {
+      background: var(--surface-hover);
+    }
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-btn .badge-dot {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--action);
+      color: var(--surface);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+    }
+    .menu-wrap {
+      position: relative;
+    }
+    .menu-pop {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      z-index: 50;
+      min-width: 220px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--e2);
+      padding: 6px;
+    }
+    .menu-pop .menu-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-faint);
+      padding: 8px 10px 4px;
+    }
+    .menu-pop button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      color: var(--text-main);
+      cursor: pointer;
+    }
+    .menu-pop button:hover,
+    .menu-pop button:focus-visible {
+      background: var(--surface-hover);
+    }
+    .menu-pop hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 6px 0;
+    }
+
+    /* ── 상태 바: 날짜 · 순위 · 돈 · 신임 · 다음 마감 · 진행 ── */
+    .status-bar {
+      display: flex;
+      align-items: stretch;
+      flex-wrap: wrap;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: var(--sp-3);
+    }
+    .sb-cell {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      padding: 10px var(--sp-4);
+      border-right: 1px solid var(--border);
+      min-width: 0;
+    }
+    .sb-cell:last-child {
+      border-right: none;
+    }
+    .sb-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-faint);
+      white-space: nowrap;
+    }
+    .sb-val {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      color: var(--text-main);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .sb-sub {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sb-sub.text-bad {
+      color: var(--bad);
+      font-weight: 600;
+    }
+    .sb-gauges {
+      display: grid;
+      grid-template-columns: auto 64px auto;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 3px;
+      font-size: var(--fs-xs);
+    }
+    .sb-gauges .gauge-track {
+      height: 6px;
+      margin: 0;
+      background: var(--surface-subtle);
+    }
+    .sb-gauges .gauge-fill,
+    .sb-gauges .gauge-fill.good {
+      background: var(--text-muted);
+    }
+    .sb-gauges .gauge-fill.low {
+      background: var(--bad);
+    }
+    .sb-gauges .g-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .sb-deadline {
+      flex: 1 1 220px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      border-right: 1px solid var(--border);
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+    .sb-deadline:hover {
+      background: var(--surface-hover);
+    }
+    .sb-deadline .sb-val {
+      font-size: var(--fs-md);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: normal;
+    }
+    .weekly-summary-banner {
+      justify-content: flex-start;
+      gap: 4px 10px;
+      font-size: var(--fs-sm);
+    }
+    .status-bar {
+      flex-wrap: nowrap;
+    }
+    .sb-cell .sb-sub {
+      max-width: 260px;
+    }
+    .sb-sim {
+      margin-left: auto;
+      flex-shrink: 0;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+    }
+    @media (max-width: 1100px) {
+      .status-bar {
+        flex-wrap: wrap;
+      }
+      .sb-cell {
+        flex: 1 1 33%;
+        border-bottom: 1px solid var(--border);
+      }
+      .sb-sim {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        border-bottom: none;
+      }
+    }
+
+    /* ── 하위 메뉴 ── */
+    .sub-nav {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-4);
+      padding-bottom: var(--sp-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .sub-nav:empty {
+      display: none;
+    }
+    .sub-link {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      padding: 6px 12px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .sub-link:hover {
+      background: var(--surface-hover);
+      color: var(--text-main);
+    }
+    .sub-link[aria-current="page"] {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .sub-link .sub-flag {
+      margin-left: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--action);
+    }
+    .page-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--sp-3);
+      flex-wrap: wrap;
+      margin: 4px 0 var(--sp-3);
+    }
+    .page-title {
+      font-size: var(--fs-xl);
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .page-desc {
+      font-size: var(--fs-sm);
+      color: var(--text-muted);
+    }
+    /* 예전 하위 탭 바는 새 하위 메뉴가 대신한다 */
+    #tab_offseason > .legacy-subtabs {
+      display: none;
+    }
+
+    /* ── 단장실 홈 ── */
+    .fo-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+      gap: var(--sp-4);
+      align-items: start;
+      margin-bottom: var(--sp-4);
+    }
+    @media (max-width: 1080px) {
+      .fo-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .fo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-4);
+    }
+    .fo-card + .fo-card {
+      margin-top: var(--sp-4);
+    }
+    .fo-card-head {
+      flex-wrap: wrap;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+    }
+    .fo-card-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .fo-card-note {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+    }
+    .decision-list,
+    .timeline,
+    .inbox-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .decision {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: var(--sp-3);
+      align-items: start;
+      padding: var(--sp-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .decision:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+    .decision-title {
+      font-weight: 700;
+      font-size: var(--fs-md);
+      margin: 0 0 2px;
+    }
+    .decision-desc {
+      font-size: var(--fs-sm);
+      color: var(--text-muted);
+    }
+    .decision-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .decision.is-must {
+      box-shadow: inset 3px 0 0 var(--action);
+      padding-left: var(--sp-3);
+    }
+    .decision.is-rec {
+      box-shadow: inset 3px 0 0 var(--opinion);
+      padding-left: var(--sp-3);
+    }
+    .timeline li {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: var(--sp-3);
+      align-items: start;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+    }
+    .timeline li:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+    .timeline .tl-title {
+      font-weight: 600;
+      font-size: var(--fs-sm);
+    }
+    .timeline .tl-title button {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: var(--text-main);
+      cursor: pointer;
+      text-align: left;
+    }
+    .timeline .tl-title button:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .timeline .tl-meta {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .inbox-tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-3);
+    }
+    .inbox-item {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: var(--sp-3);
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+    .inbox-item:first-child {
+      border-top: none;
+    }
+    .inbox-src {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-start;
+      font-size: var(--fs-xs);
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    .inbox-item.is-mine .inbox-body {
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .inbox-item.is-bad .inbox-body::before {
+      content: "▼ ";
+      color: var(--bad);
+    }
+    .inbox-item.is-good .inbox-body::before {
+      content: "▲ ";
+      color: var(--good);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--sp-3);
+    }
+    .kpi {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .kpi dt {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+      font-weight: 600;
+    }
+    .kpi dd {
+      margin: 0;
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi dd small {
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+
+    /* ── 알림(토스트) · 알림함 ── */
+    #gmToast {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      max-width: min(420px, calc(100vw - 32px));
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      box-shadow: var(--e2);
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      pointer-events: none;
+    }
+    #gmToast.show {
+      pointer-events: auto;
+    }
+    #gmToast[data-type="good"] {
+      border-left-color: var(--good);
+    }
+    #gmToast[data-type="bad"] {
+      border-left-color: var(--bad);
+    }
+    #gmToast .toast-close {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px;
+    }
+    .notif-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+
+    @media (max-width: 760px) {
+      .top-bar {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 8px var(--sp-4) 0;
+        gap: 8px;
+      }
+      .area-nav {
+        order: 3;
+        width: 100%;
+        height: 44px;
+        mask-image: linear-gradient(90deg, #000 85%, transparent);
+        -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+      }
+      .gm-container {
+        padding: var(--sp-3) var(--sp-4) var(--sp-8);
+      }
+      .sb-cell {
+        flex: 1 1 50%;
+        padding: 8px 12px;
+      }
+      .sb-sim .btn-secondary {
+        padding: 7px 10px;
+      }
+      .decision {
+        grid-template-columns: 1fr;
+      }
+      .decision-actions {
+        justify-content: flex-start;
+      }
+      .inbox-item {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .inbox-src {
+        flex-direction: row;
+      }
+      .brand-title .brand-team {
+        display: none;
+      }
+    }
   </style>
 </head>
 <body>
@@ -1321,115 +2255,156 @@
   <!-- ═══════════════════════════════════════════════════════════════════════
        상단 3-Zone 내비게이션 바
        ═══════════════════════════════════════════════════════════════════════ -->
+  <a class="skip-link" href="#mainContent">본문으로 건너뛰기</a>
   <header class="top-bar">
-    <a href="#top" class="brand-title">KBO 프런트 오피스</a>
+    <a href="#top" class="brand-title"><span>프런트 오피스</span><span class="brand-team" id="hdrLockedTeamName">광주 고양이즈</span></a>
 
-    <nav class="main-nav" aria-label="단장 업무 메뉴">
-      <button type="button" class="nav-link active" data-main-tab="pennant">대시보드 &amp; 오늘의 할 일</button>
-      <button type="button" class="nav-link" data-main-tab="roster">선수단 로스터 관리</button>
-      <button type="button" class="nav-link" data-main-tab="offseason">스토브리그 &amp; FA 협상</button>
-      <button type="button" class="nav-link" data-main-tab="facilities">R&amp;D 시설 &amp; 2군 육성</button>
-      <button type="button" class="nav-link" data-main-tab="manager">감독 &amp; 미디어 인터뷰</button>
-      <button type="button" class="nav-link" data-main-tab="records">데이터 기록실</button>
-      <button type="button" class="nav-link" data-main-tab="storage">저장 및 배포</button>
+    <nav class="area-nav" aria-label="업무 영역">
+      <button type="button" class="area-link" data-area="office" aria-current="page">단장실</button>
+      <button type="button" class="area-link" data-area="squad">선수단</button>
+      <button type="button" class="area-link" data-area="scouting">스카우팅</button>
+      <button type="button" class="area-link" data-area="contracts">계약·이적</button>
+      <button type="button" class="area-link" data-area="ops">구단 운영</button>
+      <button type="button" class="area-link" data-area="records">기록실</button>
     </nav>
 
     <div class="top-actions">
-      <button type="button" class="btn-secondary" id="btnBackToLobby">슬롯 화면으로</button>
-      <button type="button" class="btn-secondary" id="btnQuickAutoSave">빠른 저장</button>
-      <button type="button" class="btn-secondary" id="btnThemeToggle">🌙 야간 경기장</button>
+      <button type="button" class="icon-btn" id="btnNotifInbox" aria-label="알림함 열기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="badge-dot" id="notifCount" hidden>0</span>
+      </button>
+      <button type="button" class="icon-btn" id="btnQuickAutoSave">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        <span>저장</span>
+      </button>
+      <div class="menu-wrap">
+        <button type="button" class="icon-btn" id="btnSystemMenu" aria-haspopup="true" aria-expanded="false" aria-controls="systemMenu" aria-label="설정 메뉴">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <div class="menu-pop" id="systemMenu" role="menu" hidden>
+          <div class="menu-label">게임</div>
+          <button type="button" role="menuitem" data-main-tab="storage">저장 · 불러오기</button>
+          <button type="button" role="menuitem" id="btnThemeToggle">어두운 화면</button>
+          <button type="button" role="menuitem" id="btnOpenGuideInGame">게임 설명</button>
+          <button type="button" role="menuitem" id="btnBackToLobby">슬롯 화면으로 나가기</button>
+          <hr>
+          <div class="menu-label">개발 도구</div>
+          <button type="button" role="menuitem" id="btnHeaderWiringAudit">1,000회 진단</button>
+          <button type="button" role="menuitem" id="btnHeaderBalanceCheck">8시즌 밸런스 진단</button>
+        </div>
+      </div>
     </div>
   </header>
 
   <main class="gm-container" id="top">
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         구단 요약 헤더 스트립 (담당 구단 고정 · 예산 · 신임도/팬심 · 날짜 진행)
-         ═══════════════════════════════════════════════════════════════════════ -->
-    <section class="exec-strip" aria-label="구단 경영 현황 요약">
-      <div>
-        <div class="club-select-row">
-          <span class="metric-block-label" style="margin:0">담당 구단 (고정)</span>
-          <span id="hdrLockedTeamName" class="locked-team-badge">광주 고양이즈 (KIA)</span>
-        </div>
-        <div id="hdrTeamMeta" class="tiny tnum">광주-기아 챔피언스 필드 · 현재 1위</div>
-        <div id="hdrOwnerGoal" class="tiny" style="margin-top:3px;font-weight:600">구단주 목표: 포스트시즌 진출</div>
+    <!-- 상태 바: 단장이 매일 확인하는 숫자만 (날짜 · 순위 · 돈 · 신임 · 다음 마감 · 진행) -->
+    <section class="status-bar" aria-label="구단 현황">
+      <div class="sb-cell">
+        <span class="sb-label">오늘</span>
+        <span class="sb-val" id="hdrSeasonBadge">2025년 1월 1일</span>
+        <span class="sb-sub" id="hdrOwnerGoal">구단주 목표: 포스트시즌</span>
       </div>
-
-      <div>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-          <div class="metric-block-label" style="margin:0">구단 운영 예산 (보유 자금)</div>
-          <button type="button" class="btn-xs primary" id="btnOpenBudgetRequestModal" title="구단주에게 특별 예산 증액 요청">구단주 증액 요청</button>
-        </div>
-        <div id="hdrBudget" class="metric-block-val tnum">150억원</div>
-        <div id="hdrPayrollSub" class="tiny tnum" style="margin-top:3px">연봉총액 80억원</div>
+      <div class="sb-cell">
+        <span class="sb-label">순위 · 전적</span>
+        <span class="sb-val" id="hdrRank">-</span>
+        <span class="sb-sub" id="hdrTeamMeta"></span>
       </div>
-
-      <div>
-        <div class="gauge-row">
-          <span>구단주 신임도</span>
-          <span id="hdrTrustVal" class="tnum">80 / 100</span>
-        </div>
-        <div class="gauge-track"><div id="hdrTrustBar" class="gauge-fill" style="width:80%"></div></div>
-
-        <div class="gauge-row">
-          <span>감독 신임도</span>
-          <span id="hdrMgrTrustVal" class="tnum">75 / 100</span>
-        </div>
-        <div class="gauge-track"><div id="hdrMgrTrustBar" class="gauge-fill" style="width:75%"></div></div>
-
-        <div class="gauge-row">
-          <span>팬 민심 지수</span>
-          <span id="hdrFanVal" class="tnum">60 / 100</span>
-        </div>
-        <div class="gauge-track" style="margin-bottom:0"><div id="hdrFanBar" class="gauge-fill good" style="width:60%"></div></div>
+      <div class="sb-cell">
+        <span class="sb-label">예산 <button type="button" class="btn-xs ghost" id="btnOpenBudgetRequestModal" title="재정 장부 보기 · 구단주에게 증액 요청">재정</button></span>
+        <span class="sb-val" id="hdrBudget">150억</span>
+        <span class="sb-sub" id="hdrPayrollSub">연봉 80억 · 여유 70억</span>
       </div>
-
-      <div class="sim-controls">
-        <div id="hdrSeasonBadge" class="tnum font-bold">2025년 1월 1일 (수) · 1월 스토브리그</div>
-        <div class="sim-btn-row" style="flex-wrap:wrap">
-          <button type="button" class="btn-primary" id="btnNextDay">+1일 진행</button>
-          <button type="button" class="btn-secondary" id="btnNextWeek">+1주 스킵</button>
-          <button type="button" class="btn-secondary" id="btnNext4Weeks">4주 진행</button>
-          <button type="button" class="btn-secondary" id="btnHeaderWiringAudit" style="border-color:#f59e0b;color:#f59e0b;font-weight:800">1,000회 진단</button>
-          <button type="button" class="btn-secondary" id="btnHeaderBalanceCheck" style="border-color:#6366f1;color:#6366f1;font-weight:800">8시즌 밸런스 진단</button>
+      <div class="sb-cell">
+        <div class="sb-gauges" role="group" aria-label="신임도">
+          <span>구단주</span><div class="gauge-track"><div id="hdrTrustBar" class="gauge-fill" style="width:80%"></div></div><span id="hdrTrustVal" class="g-val">80</span>
+          <span>감독</span><div class="gauge-track"><div id="hdrMgrTrustBar" class="gauge-fill" style="width:75%"></div></div><span id="hdrMgrTrustVal" class="g-val">75</span>
+          <span>팬</span><div class="gauge-track"><div id="hdrFanBar" class="gauge-fill" style="width:60%"></div></div><span id="hdrFanVal" class="g-val">60</span>
         </div>
+      </div>
+      <button type="button" class="sb-cell sb-deadline" id="hdrNextDeadline" aria-label="다음 마감으로 이동">
+        <span class="sb-label">다음 마감</span>
+        <span class="sb-val" id="hdrNextDeadlineVal">-</span>
+      </button>
+      <div class="sb-cell sb-sim">
+        <button type="button" class="btn-primary" id="btnNextDay">+1일</button>
+        <button type="button" class="btn-secondary" id="btnNextWeek">+1주</button>
+        <button type="button" class="btn-secondary" id="btnNext4Weeks">+4주</button>
       </div>
     </section>
 
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         [PART 2] 단장 업무 가이드 '오늘의 할 일 (Today's To-Do)' (KBO_GM.Assistant)
-         ═══════════════════════════════════════════════════════════════════════ -->
-    <section id="todaysTodoPanel" class="panel" style="margin-bottom:16px;padding:12px 16px" aria-label="오늘의 단장 업무 가이드"></section>
+    <div class="page-head" id="mainContent" tabindex="-1">
+      <h1 class="page-title" id="areaPageTitle">단장실</h1>
+      <span class="page-desc" id="areaPageDesc"></span>
+    </div>
+    <nav class="sub-nav" id="areaSubNav" aria-label="하위 메뉴"></nav>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
-         [탭 1] 주간 페넌트레이스 대시보드
+         [단장실] 결정 대기함 · 받은 보고 · 마감 타임라인 · 팀 현황 → 순위표 · 주간 경기 · 포스트시즌
          ═══════════════════════════════════════════════════════════════════════ -->
     <section id="tab_pennant">
-      <div id="pennantTeamStatSummary" class="stat-strip-4"></div>
+      <div class="fo-grid">
+        <div>
+          <section class="fo-card" aria-labelledby="foDecisionTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함</h2>
+              <span class="fo-card-note" id="foDecisionNote"></span>
+            </div>
+            <div id="todaysTodoPanel"></div>
+          </section>
+          <section class="fo-card" aria-labelledby="foInboxTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foInboxTitle">받은 보고</h2>
+              <div class="legend" aria-label="정보 유형 범례">
+                <span><span class="it it-fact">확정</span> 기록·결과</span>
+                <span><span class="it it-est">추정</span> 오차 있음</span>
+                <span><span class="it it-opinion">의견</span> 이해관계 있음</span>
+              </div>
+            </div>
+            <div id="foInboxFilter" class="inbox-tabs" role="group" aria-label="보고 출처"></div>
+            <ul id="pennantWeeklyNews" class="inbox-list"></ul>
+          </section>
+        </div>
+        <div>
+          <section class="fo-card" aria-labelledby="foTimelineTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foTimelineTitle">마감 · 일정</h2>
+              <span class="fo-card-note">앞으로 60일</span>
+            </div>
+            <ol id="foTimeline" class="timeline"></ol>
+          </section>
+          <section class="fo-card" aria-labelledby="foStatusTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foStatusTitle">팀 현황</h2>
+              <span class="it it-fact">확정</span>
+            </div>
+            <dl id="pennantTeamStatSummary" class="kpi-grid"></dl>
+          </section>
+        </div>
+      </div>
 
       <div class="grid-2col">
         <div class="panel">
           <div class="panel-head">
-            <h2 class="panel-title">KBO 리그 구단 순위표</h2>
-            <span class="tiny">상위 5개 구단 포스트시즌 진출</span>
+            <h2 class="panel-title">리그 순위</h2>
+            <span class="tiny">점선 위 5개 구단이 포스트시즌 진출</span>
           </div>
           <div class="table-wrap">
             <table class="gm-table">
               <thead>
                 <tr>
-                  <th>순위</th>
-                  <th>구단명</th>
-                  <th>경기</th>
-                  <th>승</th>
-                  <th>패</th>
-                  <th>무</th>
-                  <th>승률</th>
-                  <th>게임차</th>
-                  <th>득점</th>
-                  <th>실점</th>
-                  <th>득실차</th>
-                  <th>신임도</th>
-                  <th>팬심</th>
+                  <th scope="col">순위</th>
+                  <th scope="col">구단</th>
+                  <th scope="col">경기</th>
+                  <th scope="col">승</th>
+                  <th scope="col">패</th>
+                  <th scope="col">무</th>
+                  <th scope="col">승률</th>
+                  <th scope="col">게임차</th>
+                  <th scope="col">득점</th>
+                  <th scope="col">실점</th>
+                  <th scope="col">득실차</th>
+                  <th scope="col">신임도</th>
+                  <th scope="col">팬심</th>
                 </tr>
               </thead>
               <tbody id="pennantStandingsBody"></tbody>
@@ -1437,25 +2412,16 @@
           </div>
         </div>
 
-        <div>
-          <div class="panel">
-            <div class="panel-head">
-              <h2 class="panel-title">주간 6연전 경기 결과 &amp; 박스스코어</h2>
-            </div>
-            <div id="pennantWeeklyMatches"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title">이번 주 경기 결과</h2>
+            <span class="tiny">카드를 누르면 박스스코어</span>
           </div>
-
-          <div class="panel">
-            <div class="panel-head">
-              <h2 class="panel-title">부상자 리포트 &amp; 멀티리그 스카우트 속보</h2>
-            </div>
-            <div id="pennantWeeklyNews" class="news-list"></div>
-          </div>
+          <div id="pennantWeeklyMatches"></div>
         </div>
       </div>
 
-      <!-- [PART 4-1] KBO 포스트시즌(가을야구) 계단식 토너먼트 브래킷 요약 -->
-      <div id="pennantPostseasonPanel" class="panel" style="margin-top:16px"></div>
+      <div id="pennantPostseasonPanel" class="panel"></div>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
@@ -1465,7 +2431,7 @@
       <div class="panel">
         <div class="panel-head">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <h2 class="panel-title">구단 선수단 로스터 &amp; 엔트리 이동</h2>
+            <h2 class="panel-title">로스터 · 엔트리</h2>
             <select id="rosterTeamSelect" class="gm-select" aria-label="조회 구단 선택"></select>
           </div>
           <button type="button" class="btn-secondary" id="btnUpgradeScout">스카우트 Lv.3 증설</button>
@@ -1499,7 +2465,7 @@
                 <th data-roster-sort="name" style="cursor:pointer" title="클릭하여 이름순 정렬">선수명 <span id="sortInd_name"></span></th>
                 <th data-roster-sort="age" style="cursor:pointer" title="클릭하여 나이순 정렬">나이 <span id="sortInd_age"></span></th>
                 <th>투타</th>
-                <th data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR (안개) <span id="sortInd_ovr"></span></th>
+                <th data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR <span id="sortInd_ovr"></span></th>
                 <th data-roster-sort="potential" style="cursor:pointer" title="클릭하여 포텐셜순 정렬">포텐셜 <span id="sortInd_potential"></span></th>
                 <th>이번 시즌 주요 기록 (1군 / 2군 퓨처스)</th>
                 <th data-roster-sort="war" style="cursor:pointer" title="클릭하여 WAR순 정렬">WAR <span id="sortInd_war"></span></th>
@@ -1518,7 +2484,7 @@
          [탭 3] 스토브리그 / 프런트 오피스 업무 (드래프트 · 연봉 · FA · 외국인 · 캠프)
          ═══════════════════════════════════════════════════════════════════════ -->
     <section id="tab_offseason" hidden="">
-      <div style="margin-bottom:16px">
+      <div class="legacy-subtabs">
         <div class="subtab-bar">
           <button type="button" class="subtab-btn active" data-off-sub="draft">01. 신인 드래프트장 (고교·대학·독립리그)</button>
           <button type="button" class="subtab-btn" data-off-sub="salary">02. 연봉 재계약 · 조정위</button>
@@ -1533,7 +2499,7 @@
       <!-- (3-1) 신인 드래프트 패널 -->
       <div id="offPanel_draft" class="panel">
         <div class="panel-head">
-          <h2 class="panel-title">고교/대학 아마추어 신인 드래프트 (1~3R 단장 직접 지명 · 4~10R 스카우트팀 위임)</h2>
+          <h2 class="panel-title">신인 드래프트 <span class="tiny">1~3라운드 직접 지명 · 4라운드부터 스카우트팀 위임</span></h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn-primary" id="btnDraftAutoRound">현재 라운드 스카우트 추천 지명</button>
             <button type="button" class="btn-secondary" id="btnDraftPassRound">지명권 포기 (PASS)</button>
@@ -1761,13 +2727,7 @@
       </div>
 
       <!-- (3-5) [PART 4] KBO 5대 프런트 핵심 시스템 통합 컨트롤 타워 -->
-      <div id="offPanel_front5" class="panel" hidden="">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title">KBO 5대 프런트 핵심 시스템 (가을야구 · 격년 2차 드래프트 · 상무 병역 · R&amp;D 인프라 · 샐러리캡 &amp; 비FA 다년)</h2>
-            <div class="tiny">포스트시즌 배당금, 35인 보호선수 2차 드래프트, 상무 피닉스 18개월 복무 성장, 3대 R&amp;D 시설(Lv.1~5), 경쟁균형세(120억 상한) 및 비FA 다년 연장 계약을 총괄합니다.</div>
-          </div>
-        </div>
+      <div id="offPanel_front5" hidden="">
         <div id="front5DashboardContainer"></div>
       </div>
     </section>
@@ -1792,7 +2752,7 @@
     <section id="tab_records" hidden="">
       <div class="panel">
         <div class="panel-head">
-          <h2 class="panel-title">멀티 리그 통합 데이터 기록실</h2>
+          <h2 class="panel-title">기록</h2>
           <div class="subtab-bar">
             <button type="button" class="subtab-btn active" data-rec-sub="kboBat">KBO 타자 WAR 순위</button>
             <button type="button" class="subtab-btn" data-rec-sub="kboPit">KBO 투수 WAR 순위</button>
@@ -1811,7 +2771,8 @@
          [탭 5] 신규 단장 부임 세팅 · IndexedDB 저장소 · 단일 index.html 번들 다운로드
          ═══════════════════════════════════════════════════════════════════════ -->
     <section id="tab_storage" hidden="">
-      <div class="panel">
+      <!-- 새 단장 시작은 슬롯 화면에서만 한다 (진행 중인 게임을 실수로 덮어쓰지 않도록 숨김) -->
+      <div class="panel" hidden>
         <div class="panel-head">
           <div>
             <h2 class="panel-title">신임 단장 프로필 생성 및 2025년 1월 1일 새 시즌 시작 (KBO_GM.Setup)</h2>
@@ -1862,8 +2823,8 @@
       <div class="panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title">IndexedDB 대용량 세이브 슬롯 관리</h2>
-            <div class="tiny">10개 구단 로스터·해외/아마추어 풀·수십 년 치 통산 기록을 브라우저 IndexedDB에 영구 보관합니다.</div>
+            <h2 class="panel-title">저장 슬롯</h2>
+            <div class="tiny">이 브라우저에 저장됩니다. 새 단장은 ‘슬롯 화면으로 나가기’에서 시작하세요.</div>
           </div>
           <button type="button" class="btn-primary" id="btnExportStandaloneHtml" disabled="">단일 index.html 병합 중...</button>
         </div>
@@ -1904,6 +2865,7 @@
   <script src="gm-nonfa.js"></script>
   <script src="gm-retro.js"></script>
   <script src="gm-balance.js"></script>
+  <script src="gm-frontoffice.js"></script>
   <script src="gm-ui.js"></script>
 </body>
 </html>
