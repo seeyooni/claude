@@ -1,0 +1,3142 @@
+<!doctype html>
+<html lang="ko" data-theme="light"><head>
+  
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>나만의 야구 단장 만들기 — KBO 프런트 오피스</title>
+  <meta name="description" content="KBO 구단 단장이 되어 드래프트·FA·연봉·트레이드·재정을 결정하는 프런트 오피스 시뮬레이션">
+  <meta property="og:title" content="나만의 야구 단장 만들기">
+  <meta property="og:description" content="KBO 구단 단장이 되어 드래프트·FA·연봉·트레이드·재정을 결정하는 프런트 오피스 시뮬레이션">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600;700&amp;family=Noto+Sans+KR:wght@400;500;600;700;800&amp;family=Plus+Jakarta+Sans:wght@600;700;800&amp;display=swap">
+  <style>
+    /* ═══════════════════════════════════════════════════════════════════════
+       KBO 단장 모드 (v1.0) — 프런트 오피스 대시보드 디자인 시스템
+       기반: Sky Marshmallow (라이트 모드) & 야간 구장 (다크 모드)
+       ═══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --bg: #F4F7FB;
+      --surface: #FFFFFF;
+      --surface-subtle: #F8FAFC;
+      --surface-hover: #EFF6FF;
+      --border: #E2E8F0;
+      --border-strong: #CBD5E1;
+      --text-main: #0F172A;
+      --text-muted: #475569;
+      --text-faint: #64748B;
+      --accent: #1572D6;
+      --accent-hover: #0D56AD;
+      --accent-soft: #E8F3FF;
+      --good: #12864A;
+      --good-soft: #E4F6EB;
+      --bad: #D0403E;
+      --bad-soft: #FDECEB;
+      --warn: #B86E00;
+      --warn-soft: #FFF3DC;
+      --font-sans: "Plus Jakarta Sans", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: "IBM Plex Mono", "Noto Sans KR", monospace;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --radius-sm: 6px;
+      --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
+    }
+
+    html[data-theme="dark"] {
+      --bg: #0B1120;
+      --surface: #131C31;
+      --surface-subtle: #19243E;
+      --surface-hover: #1E2D4F;
+      --border: #263554;
+      --border-strong: #33466B;
+      --text-main: #F1F5F9;
+      --text-muted: #94A3B8;
+      --text-faint: #64748B;
+      --accent: #3898FF;
+      --accent-hover: #60AEFF;
+      --accent-soft: rgba(56, 152, 255, 0.15);
+      --good: #34D399;
+      --good-soft: rgba(52, 211, 153, 0.14);
+      --bad: #F87171;
+      --bad-soft: rgba(248, 113, 113, 0.14);
+      --warn: #FBBF24;
+      --warn-soft: rgba(251, 191, 36, 0.14);
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+    [hidden] {
+      display: none !important;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tnum {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .font-bold {
+      font-weight: 700;
+    }
+    .muted {
+      color: var(--text-muted);
+    }
+    .tiny {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .text-good {
+      color: var(--good);
+    }
+    .text-bad {
+      color: var(--bad);
+    }
+    .sep {
+      margin: 0 6px;
+      color: var(--text-faint);
+    }
+
+    /* ── Top Bar Contract (3-Zone Navigation) ── */
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-main);
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .main-nav {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      overflow-x: auto;
+    }
+
+    .nav-link {
+      background: none;
+      border: none;
+      padding: 18px 2px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: var(--text-main);
+    }
+    .nav-link.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    /* ── Main Container & Executive Summary Strip ── */
+    .gm-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px 24px 64px;
+    }
+
+    .exec-strip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 1.2fr;
+      gap: 20px;
+      align-items: center;
+    }
+
+    @media (max-width: 1024px) {
+      .exec-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 640px) {
+      .exec-strip {
+        grid-template-columns: 1fr;
+      }
+      .top-bar {
+        height: auto;
+        padding: 10px 16px;
+        flex-wrap: wrap;
+      }
+      .main-nav {
+        order: 3;
+        width: 100%;
+        gap: 14px;
+      }
+      .nav-link {
+        padding: 8px 2px;
+      }
+    }
+
+    .club-select-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .gm-select {
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-family: inherit;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .metric-block-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .metric-block-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text-main);
+      line-height: 1.2;
+    }
+
+    .gauge-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .gauge-track {
+      height: 7px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .gauge-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.2s ease;
+    }
+    .gauge-fill.good {
+      background: var(--good);
+    }
+
+    .sim-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+    }
+    .sim-btn-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      justify-content: flex-end;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary,
+    .btn-secondary,
+    .btn-sm,
+    .btn-xs {
+      font-family: inherit;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #FFFFFF;
+      border: 1px solid var(--accent);
+      padding: 9px 16px;
+      font-size: 13.5px;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+    .btn-secondary {
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      border: 1px solid var(--border-strong);
+      padding: 8px 13px;
+      font-size: 13px;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12.5px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+    }
+    .btn-sm.primary,
+    .btn-xs.primary {
+      background: var(--accent);
+      color: #FFFFFF;
+      border-color: var(--accent);
+    }
+    .btn-sm.ghost,
+    .btn-xs.ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-muted);
+    }
+    .btn-xs {
+      padding: 4px 8px;
+      font-size: 11.5px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    /* ── Panels & Grid Layout ── */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 1080px) {
+      .grid-2col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      margin: 0;
+      color: var(--text-main);
+    }
+
+    /* ── Stat Summary Strip ── */
+    .stat-strip-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 768px) {
+      .stat-strip-4 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .stat-tile {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .stat-val {
+      font-size: 19px;
+      font-weight: 800;
+      margin-top: 4px;
+      color: var(--text-main);
+    }
+    .stat-sub {
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    /* ── High-Density Tables ── */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .gm-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .gm-table th {
+      text-align: left;
+      padding: 9px 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      background: var(--surface-subtle);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .gm-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    .gm-table.compact th,
+    .gm-table.compact td {
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    .gm-table tbody tr:hover {
+      background: var(--surface-hover);
+    }
+    .gm-table tbody tr.my-team-row {
+      background: var(--accent-soft);
+    }
+    .gm-table tbody tr.player-row {
+      cursor: pointer;
+    }
+    .gm-table tbody tr.ps-line:nth-child(5) td {
+      border-bottom: 2px dashed var(--accent);
+    }
+
+    .inline-tag {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-left: 6px;
+    }
+    .pos-code {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--accent);
+    }
+    .status-text.good {
+      color: var(--good);
+      font-weight: 600;
+    }
+    .status-text.bad {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    /* ── Segmented Sub-Tabs & Filter Bars ── */
+    .subtab-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: var(--surface-subtle);
+      padding: 5px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+    .subtab-btn {
+      background: transparent;
+      border: none;
+      padding: 7px 13px;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .subtab-btn.active {
+      background: var(--surface);
+      color: var(--accent);
+      font-weight: 700;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ── Weekly Match Result Cards ── */
+    .weekly-summary-banner {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .match-card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 640px) {
+      .match-card-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .match-result-card {
+      text-align: left;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 11px 13px;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.1s ease;
+    }
+    .match-result-card:hover {
+      border-color: var(--accent);
+    }
+    .match-card-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .match-badge.win {
+      color: var(--good);
+      font-weight: 800;
+    }
+    .match-badge.lose {
+      color: var(--bad);
+      font-weight: 800;
+    }
+    .match-score-line {
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .match-Pitcher-line {
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* ── News & Scout Cards ── */
+    .news-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .news-item {
+      padding: 9px 12px;
+      background: var(--surface-subtle);
+      border-left: 3px solid var(--border-strong);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .news-item.good {
+      border-left-color: var(--good);
+    }
+    .news-item.bad {
+      border-left-color: var(--bad);
+    }
+    .news-item.highlight {
+      border-left-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .scout-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .scout-card {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .scout-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .scout-rank-tag {
+      margin-left: auto;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .scout-metrics {
+      font-size: 12.5px;
+      color: var(--text-muted);
+    }
+    .scout-reason {
+      font-size: 12.5px;
+      color: var(--text-main);
+    }
+    .scout-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    /* ── Inputs & Storage Slots ── */
+    .num-input {
+      width: 100px;
+      padding: 5px 8px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 13px;
+      text-align: right;
+    }
+    .num-input-xs {
+      width: 52px;
+      padding: 5px 6px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .slot-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .slot-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 14px 16px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .slot-title {
+      font-weight: 700;
+      font-size: 14.5px;
+      margin-bottom: 4px;
+    }
+    .slot-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .empty-box,
+    .report-box {
+      padding: 14px 16px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .empty-cell {
+      text-align: center;
+      padding: 24px !important;
+      color: var(--text-muted);
+    }
+    .log-row {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    /* ── Modal & Toast ── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      max-width: 780px;
+      width: 100%;
+      max-height: 88vh;
+      overflow-y: auto;
+      padding: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    }
+    .modal-stat-row {
+      display: grid;
+      grid-template-columns: 56px 1fr 90px;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .modal-stat-label {
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .modal-stat-bar {
+      height: 10px;
+      background: var(--surface-subtle);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .modal-stat-bar i {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+    }
+    .modal-stat-val {
+      text-align: right;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .boxscore-split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 720px) {
+      .boxscore-split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    #gmToast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 80;
+      background: var(--text-main);
+      color: var(--surface);
+      padding: 11px 18px;
+      border-radius: var(--radius-md);
+      font-size: 13.5px;
+      font-weight: 600;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+    #gmToast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── 초기 로비(슬롯 선택) & 새 단장 만들기 화면 (스크린샷 1·2 디자인) ── */
+    .lobby-wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 44px 18px 64px;
+    }
+    .lobby-theme-floating {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      z-index: 50;
+      border-radius: 999px;
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    .lobby-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .lobby-main-title {
+      font-size: clamp(28px, 5vw, 40px);
+      font-weight: 900;
+      color: #2563eb;
+      letter-spacing: -0.03em;
+      margin: 0 0 10px;
+    }
+    html[data-theme="dark"] .lobby-main-title {
+      color: #60a5fa;
+    }
+    .lobby-subtitle {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      margin: 0 0 16px;
+    }
+    .lobby-subtitle strong {
+      color: #2563eb;
+    }
+    html[data-theme="dark"] .lobby-subtitle strong {
+      color: #60a5fa;
+    }
+    .lobby-guide-pill {
+      display: inline-block;
+      padding: 9px 22px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-weight: 700;
+      font-size: 13.5px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+    }
+    .lobby-sec-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 800;
+      margin: 26px 0 12px;
+      color: var(--text-main);
+    }
+    .lobby-sec-title::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    .lobby-slot-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .lobby-slot-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 20px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+    }
+    .lobby-slot-card.empty {
+      background: transparent;
+      border: 1.5px dashed #cbd5e1;
+      box-shadow: none;
+    }
+    html[data-theme="dark"] .lobby-slot-card.empty {
+      border-color: #334155;
+    }
+    .lobby-slot-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .lobby-ball-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #1d6ce0;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .lobby-plus-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: #1d6ce0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .lobby-slot-name {
+      font-size: 16.5px;
+      font-weight: 800;
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+    .lobby-slot-sub {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .lobby-slot-right {
+      display: flex;
+       flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .btn-continue-link {
+      background: none;
+      border: none;
+      color: #1d6ce0;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 2px 6px;
+    }
+    html[data-theme="dark"] .btn-continue-link {
+      color: #60a5fa;
+    }
+    .btn-clear-pill {
+      background: var(--surface-subtle);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .btn-new-gm-pill {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d6ce0;
+      font-weight: 800;
+      font-size: 13px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    html[data-theme="dark"] .btn-new-gm-pill {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.35);
+      color: #93c5fd;
+    }
+    .lobby-bottom-bar {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .lobby-row-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px 20px;
+      border-radius: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-weight: 800;
+      font-size: 14px;
+      color: var(--text-main);
+      cursor: pointer;
+    }
+
+    /* ── 새 단장 생성 폼 카드 (스크린샷 2 스타일) ── */
+    .create-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 26px 24px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    .create-field-label {
+      display: block;
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--text-muted);
+      margin: 18px 0 8px;
+    }
+    .create-field-label:first-child {
+      margin-top: 0;
+    }
+    .create-text-input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-subtle);
+      color: var(--text-main);
+      font-size: 15.5px;
+      font-weight: 600;
+    }
+    .create-pill-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 600px) {
+      .create-pill-row {
+        grid-template-columns: 1fr;
+      }
+    }
+    .create-choice-pill {
+      padding: 13px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .create-choice-pill.active {
+      background: #1d6ce0;
+      border-color: #1d6ce0;
+      color: #ffffff;
+    }
+    .create-team-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+    @media (max-width: 680px) {
+      .create-team-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .create-team-box {
+      padding: 12px 8px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-main);
+      text-align: center;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      transition: all 0.15s ease;
+    }
+    .create-team-box.active {
+      background: #1d6ce0;
+      border-color: #1d6ce0;
+      color: #ffffff;
+    }
+    .create-team-box .t-name {
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .create-team-box .t-sub {
+      font-size: 11px;
+      opacity: 0.85;
+    }
+    .create-team-box .t-bud {
+      font-size: 12.5px;
+      font-weight: 800;
+      margin-top: 2px;
+    }
+    .create-desc-box {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+      font-size: 13.5px;
+      line-height: 1.55;
+    }
+    .locked-team-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 15px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       프런트 오피스 디자인 시스템 v2
+       방향: 구단 프런트 오피스 · 차분하고 밀도 높은 데이터 · 강조색은 네이비 하나
+       색은 '의미(정보 유형)' 전용: 확정 · 추정 · 의견 · 결정 · 주의 · 증감
+       (아래 값이 위쪽 v1 토큰을 덮어쓴다. 대비는 WCAG AA 이상)
+       ═══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --bg: #F4F5F7;
+      --surface: #FFFFFF;
+      --surface-subtle: #EEF0F3;
+      --surface-hover: #E8ECF1;
+      --border: #DDE1E6;
+      --border-strong: #8492A6;
+      --text-main: #161B22;
+      --text-muted: #454E5C;
+      --text-faint: #5F6877;
+      --accent: #1D4F91;
+      --accent-hover: #163E73;
+      --accent-soft: #E7EEF8;
+      --on-accent: #FFFFFF;
+      --good: #0F6B3F;
+      --good-soft: #E3F2EA;
+      --bad: #B42318;
+      --bad-soft: #FCEBE9;
+      --warn: #8A5300;
+      --warn-soft: #FDF1DC;
+      /* 정보 유형 */
+      --fact: #161B22;
+      --est: #0B6670;
+      --est-soft: #E2F1F2;
+      --opinion: #5B43A6;
+      --opinion-soft: #EFEBF9;
+      --action: #B42318;
+      --action-soft: #FCEBE9;
+      /* 타입 스케일 */
+      --fs-xs: 12px;
+      --fs-sm: 13px;
+      --fs-md: 14px;
+      --fs-lg: 16px;
+      --fs-xl: 20px;
+      --fs-2xl: 24px;
+      /* 간격 */
+      --sp-1: 4px;
+      --sp-2: 8px;
+      --sp-3: 12px;
+      --sp-4: 16px;
+      --sp-6: 24px;
+      --sp-8: 32px;
+      /* 모서리 · 높이 */
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --e1: 0 1px 2px rgba(22, 27, 34, 0.06);
+      --e2: 0 4px 12px rgba(22, 27, 34, 0.08), 0 1px 3px rgba(22, 27, 34, 0.05);
+      --e3: 0 16px 40px rgba(22, 27, 34, 0.14);
+      --shadow-sm: var(--e1);
+      --font-sans: "Plus Jakarta Sans", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: var(--font-sans);
+    }
+    html[data-theme="dark"] {
+      --bg: #0E1117;
+      --surface: #161B23;
+      --surface-subtle: #1E2530;
+      --surface-hover: #232B38;
+      --border: #2A323F;
+      --border-strong: #5B6B8C;
+      --text-main: #E7EAEE;
+      --text-muted: #AEB6C2;
+      --text-faint: #8A93A1;
+      --accent: #7FAEF0;
+      --accent-hover: #A3C5F5;
+      --accent-soft: #1A2A44;
+      --on-accent: #0E1117;
+      --good: #5BD08E;
+      --good-soft: #14301F;
+      --bad: #FF8A7A;
+      --bad-soft: #3A1B1A;
+      --warn: #F2B54A;
+      --warn-soft: #36290F;
+      --fact: #E7EAEE;
+      --est: #5CC4CC;
+      --est-soft: #11303A;
+      --opinion: #B3A1F0;
+      --opinion-soft: #272240;
+      --action: #FF8A7A;
+      --action-soft: #3A1B1A;
+      --e1: 0 0 0 transparent;
+      --e2: 0 4px 12px rgba(0, 0, 0, 0.4);
+      --e3: 0 16px 40px rgba(0, 0, 0, 0.5);
+    }
+
+    body {
+      font-size: var(--fs-md);
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
+    /* 숫자 정렬은 글꼴 교체 없이 tabular-nums 만 */
+    .tnum,
+    .pos-code {
+      font-family: inherit;
+      font-variant-numeric: tabular-nums lining-nums;
+    }
+    .tiny {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .muted {
+      color: var(--text-muted);
+    }
+
+    /* 접근성: 키보드 포커스 · 본문 바로가기 · 모션 줄이기 */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -48px;
+      z-index: 100;
+      background: var(--accent);
+      color: var(--on-accent);
+      padding: 8px 14px;
+      border-radius: var(--radius-md);
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .skip-link:focus {
+      top: 8px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* ── 버튼: 채움 primary 는 화면당 1~2개 ── */
+    .btn-primary,
+    .btn-secondary,
+    .btn-sm,
+    .btn-xs {
+      border-radius: var(--radius-md);
+      font-weight: 600;
+    }
+    .btn-primary,
+    .btn-sm.primary,
+    .btn-xs.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--on-accent);
+    }
+    .btn-primary {
+      font-size: var(--fs-md);
+      padding: 8px 16px;
+    }
+    .btn-secondary {
+      background: var(--surface);
+      font-size: var(--fs-sm);
+      padding: 7px 12px;
+    }
+    .btn-sm {
+      font-size: var(--fs-sm);
+      background: var(--surface);
+    }
+    .btn-xs {
+      font-size: var(--fs-xs);
+      background: var(--surface);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+    }
+    .btn-sm.ghost,
+    .btn-xs.ghost {
+      border-color: var(--border-strong);
+      color: var(--text-main);
+    }
+    .btn-danger {
+      background: var(--surface);
+      color: var(--bad);
+      border: 1px solid var(--bad);
+    }
+    button:disabled {
+      opacity: 0.55;
+    }
+
+    /* ── 패널 · 표 ── */
+    .panel {
+      border-radius: var(--radius-lg);
+      padding: var(--sp-4) 20px;
+      margin-bottom: var(--sp-4);
+      box-shadow: none;
+    }
+    .panel-head {
+      margin-bottom: var(--sp-3);
+      padding-bottom: var(--sp-2);
+    }
+    .panel-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    h3.panel-title {
+      font-size: 15px !important;
+    }
+    .stat-tile {
+      background: var(--surface);
+    }
+    .stat-label {
+      font-size: var(--fs-xs);
+    }
+    .stat-val {
+      font-size: var(--fs-xl);
+      font-weight: 700;
+    }
+    .gm-table {
+      font-size: var(--fs-sm);
+    }
+    .gm-table th {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      color: var(--text-faint);
+    }
+    .gm-table tbody tr.my-team-row {
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .gm-table th[data-roster-sort] {
+      cursor: pointer;
+    }
+    .subtab-btn {
+      border-radius: var(--radius-md) !important;
+    }
+    .scout-card,
+    .slot-card,
+    .stat-tile,
+    .report-box,
+    .empty-box {
+      border-radius: var(--radius-md);
+    }
+    .modal-card {
+      border-radius: var(--radius-lg);
+      box-shadow: var(--e3);
+    }
+    .modal-backdrop {
+      background: rgba(14, 17, 23, 0.55);
+    }
+
+    /* ── 정보 유형 배지 (색 + 글자 라벨을 항상 같이) ── */
+    .it {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid currentColor;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .it-fact {
+      color: var(--text-muted);
+    }
+    .it-est {
+      color: var(--est);
+      background: var(--est-soft);
+      border-style: dashed;
+    }
+    .it-opinion {
+      color: var(--opinion);
+      background: var(--opinion-soft);
+    }
+    .it-action {
+      color: var(--action);
+      background: var(--action-soft);
+    }
+    .it-warn {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+    .it-good {
+      color: var(--good);
+      background: var(--good-soft);
+    }
+    .est-val {
+      color: var(--est);
+      text-decoration: underline dotted;
+      text-underline-offset: 3px;
+    }
+    .dday {
+      display: inline-block;
+      min-width: 44px;
+      text-align: center;
+      font-weight: 700;
+      font-size: var(--fs-xs);
+      font-variant-numeric: tabular-nums;
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-subtle);
+      color: var(--text-muted);
+    }
+    .dday.urgent {
+      background: var(--action-soft);
+      color: var(--action);
+    }
+    .dday.soon {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    /* ── 상단 바: 브랜드 · 6개 업무 영역 · 메뉴 ── */
+    .top-bar {
+      height: 56px;
+      padding: 0 var(--sp-6);
+      box-shadow: var(--e1);
+    }
+    .brand-title {
+      font-size: var(--fs-md);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title .brand-team {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .area-nav {
+      display: flex;
+      align-items: stretch;
+      gap: 4px;
+      height: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .area-nav::-webkit-scrollbar {
+      display: none;
+    }
+    .area-link {
+      position: relative;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 0 12px;
+      font: inherit;
+      font-size: var(--fs-md);
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .area-link:hover {
+      color: var(--text-main);
+    }
+    .area-link[aria-current="page"] {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 700;
+    }
+    .area-link .nav-count {
+      display: inline-block;
+      min-width: 18px;
+      margin-left: 4px;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: var(--action);
+      color: var(--surface);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+    }
+    .icon-btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 34px;
+      min-width: 34px;
+      padding: 0 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+      background: var(--surface);
+      color: var(--text-main);
+      font: inherit;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .icon-btn:hover {
+      background: var(--surface-hover);
+    }
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-btn .badge-dot {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--action);
+      color: var(--surface);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 18px;
+      text-align: center;
+    }
+    .menu-wrap {
+      position: relative;
+    }
+    .menu-pop {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      z-index: 50;
+      min-width: 220px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--e2);
+      padding: 6px;
+    }
+    .menu-pop .menu-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-faint);
+      padding: 8px 10px 4px;
+    }
+    .menu-pop button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      color: var(--text-main);
+      cursor: pointer;
+    }
+    .menu-pop button:hover,
+    .menu-pop button:focus-visible {
+      background: var(--surface-hover);
+    }
+    .menu-pop hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 6px 0;
+    }
+
+    /* ── 상태 바: 날짜 · 순위 · 돈 · 신임 · 다음 마감 · 진행 ── */
+    .status-bar {
+      display: flex;
+      align-items: stretch;
+      flex-wrap: wrap;
+      gap: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: var(--sp-3);
+    }
+    .sb-cell {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2px;
+      padding: 10px var(--sp-4);
+      border-right: 1px solid var(--border);
+      min-width: 0;
+    }
+    .sb-cell:last-child {
+      border-right: none;
+    }
+    .sb-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-faint);
+      white-space: nowrap;
+    }
+    .sb-val {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      color: var(--text-main);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .sb-sub {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sb-sub.text-bad {
+      color: var(--bad);
+      font-weight: 600;
+    }
+    .sb-gauges {
+      display: grid;
+      grid-template-columns: auto 64px auto;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 3px;
+      font-size: var(--fs-xs);
+    }
+    .sb-gauges .gauge-track {
+      height: 6px;
+      margin: 0;
+      background: var(--surface-subtle);
+    }
+    .sb-gauges .gauge-fill,
+    .sb-gauges .gauge-fill.good {
+      background: var(--text-muted);
+    }
+    .sb-gauges .gauge-fill.low {
+      background: var(--bad);
+    }
+    .sb-gauges .g-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .sb-deadline {
+      flex: 1 1 220px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      border-right: 1px solid var(--border);
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+    .sb-deadline:hover {
+      background: var(--surface-hover);
+    }
+    .sb-deadline .sb-val {
+      font-size: var(--fs-md);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: normal;
+    }
+    .weekly-summary-banner {
+      justify-content: flex-start;
+      gap: 4px 10px;
+      font-size: var(--fs-sm);
+    }
+    .status-bar {
+      flex-wrap: nowrap;
+    }
+    .sb-cell .sb-sub {
+      max-width: 260px;
+    }
+    .sb-sim {
+      margin-left: auto;
+      flex-shrink: 0;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+    }
+    @media (max-width: 1100px) {
+      .status-bar {
+        flex-wrap: wrap;
+      }
+      .sb-cell {
+        flex: 1 1 33%;
+        border-bottom: 1px solid var(--border);
+      }
+      .sb-sim {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+        border-bottom: none;
+      }
+    }
+
+    /* ── 하위 메뉴 ── */
+    .sub-nav {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-4);
+      padding-bottom: var(--sp-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .sub-nav:empty {
+      display: none;
+    }
+    .sub-link {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: var(--radius-md);
+      padding: 6px 12px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .sub-link:hover {
+      background: var(--surface-hover);
+      color: var(--text-main);
+    }
+    .sub-link[aria-current="page"] {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .sub-link .sub-flag {
+      margin-left: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--action);
+    }
+    .page-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--sp-3);
+      flex-wrap: wrap;
+      margin: 4px 0 var(--sp-3);
+    }
+    .page-title {
+      font-size: var(--fs-xl);
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .page-desc {
+      font-size: var(--fs-sm);
+      color: var(--text-muted);
+    }
+    /* 예전 하위 탭 바는 새 하위 메뉴가 대신한다 */
+    #tab_offseason > .legacy-subtabs {
+      display: none;
+    }
+
+    /* ── 단장실 홈 ── */
+    .fo-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+      gap: var(--sp-4);
+      align-items: start;
+      margin-bottom: var(--sp-4);
+    }
+    @media (max-width: 1080px) {
+      .fo-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .fo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--sp-4);
+    }
+    .fo-card + .fo-card {
+      margin-top: var(--sp-4);
+    }
+    .fo-card-head {
+      flex-wrap: wrap;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--sp-2);
+      margin-bottom: var(--sp-3);
+    }
+    .fo-card-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .fo-card-note {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+    }
+    .decision-list,
+    .timeline,
+    .inbox-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .decision {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: var(--sp-3);
+      align-items: start;
+      padding: var(--sp-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .decision:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+    .decision-title {
+      font-weight: 700;
+      font-size: var(--fs-md);
+      margin: 0 0 2px;
+    }
+    .decision-desc {
+      font-size: var(--fs-sm);
+      color: var(--text-muted);
+    }
+    .decision-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .decision.is-must {
+      box-shadow: inset 3px 0 0 var(--action);
+      padding-left: var(--sp-3);
+    }
+    .decision.is-rec {
+      box-shadow: inset 3px 0 0 var(--opinion);
+      padding-left: var(--sp-3);
+    }
+    .timeline li {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: var(--sp-3);
+      align-items: start;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+    }
+    .timeline li:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+    .timeline .tl-title {
+      font-weight: 600;
+      font-size: var(--fs-sm);
+    }
+    .timeline .tl-title button {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: var(--text-main);
+      cursor: pointer;
+      text-align: left;
+    }
+    .timeline .tl-title button:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .timeline .tl-meta {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .inbox-tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: var(--sp-3);
+    }
+    .inbox-item {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: var(--sp-3);
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+    .inbox-item:first-child {
+      border-top: none;
+    }
+    .inbox-src {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-start;
+      font-size: var(--fs-xs);
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+    .inbox-item.is-mine .inbox-body {
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .inbox-item.is-bad .inbox-body::before {
+      content: "▼ ";
+      color: var(--bad);
+    }
+    .inbox-item.is-good .inbox-body::before {
+      content: "▲ ";
+      color: var(--good);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--sp-3);
+    }
+    .kpi {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .kpi dt {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+      font-weight: 600;
+    }
+    .kpi dd {
+      margin: 0;
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi dd small {
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      align-items: center;
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+
+    /* ── 알림(토스트) · 알림함 ── */
+    #gmToast {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      max-width: min(420px, calc(100vw - 32px));
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      box-shadow: var(--e2);
+      font-size: var(--fs-sm);
+      font-weight: 500;
+      pointer-events: none;
+    }
+    #gmToast.show {
+      pointer-events: auto;
+    }
+    #gmToast[data-type="good"] {
+      border-left-color: var(--good);
+    }
+    #gmToast[data-type="bad"] {
+      border-left-color: var(--bad);
+    }
+    #gmToast .toast-close {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px;
+    }
+    .notif-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+
+    @media (max-width: 760px) {
+      .top-bar {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 8px var(--sp-4) 0;
+        gap: 8px;
+      }
+      .area-nav {
+        order: 3;
+        width: 100%;
+        height: 44px;
+        mask-image: linear-gradient(90deg, #000 85%, transparent);
+        -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+      }
+      .gm-container {
+        padding: var(--sp-3) var(--sp-4) var(--sp-8);
+      }
+      .sb-cell {
+        flex: 1 1 50%;
+        padding: 8px 12px;
+      }
+      .sb-sim .btn-secondary {
+        padding: 7px 10px;
+      }
+      .decision {
+        grid-template-columns: 1fr;
+      }
+      .decision-actions {
+        justify-content: flex-start;
+      }
+      .inbox-item {
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .inbox-src {
+        flex-direction: row;
+      }
+      .brand-title .brand-team {
+        display: none;
+      }
+    }
+
+    /* ── 디자인 2차: 표 숫자 정렬 · 그룹 머리글 · 행 동작 메뉴 · 단계 표시 ── */
+    .gm-table th.num,
+    .gm-table td.num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .gm-table tr.group-head th {
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: var(--fs-xs);
+      font-weight: 700;
+      padding-top: 14px;
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .gm-table tr.group-head:hover {
+      background: none;
+    }
+    .action-cell {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .action-cell > * + * {
+      margin-left: 4px;
+    }
+    .row-menu {
+      position: relative;
+      display: inline-block;
+    }
+    .row-menu > summary {
+      list-style: none;
+      cursor: pointer;
+      display: inline-block;
+      min-width: 28px;
+      text-align: center;
+    }
+    .row-menu > summary::-webkit-details-marker {
+      display: none;
+    }
+    .row-menu-pop {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 20;
+      min-width: 180px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--e2);
+      padding: 4px;
+      text-align: left;
+    }
+    .row-menu-pop button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font: inherit;
+      font-size: var(--fs-sm);
+      color: var(--text-main);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .row-menu-pop button.text-bad {
+      color: var(--bad);
+    }
+    .row-menu-pop button:hover,
+    .row-menu-pop button:focus-visible {
+      background: var(--surface-hover);
+    }
+    .phase-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: var(--sp-4);
+    }
+    .phase {
+      flex: 1 1 180px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+    .phase:hover {
+      background: var(--surface-hover);
+    }
+    .phase .phase-name {
+      font-weight: 700;
+      font-size: var(--fs-sm);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .phase .phase-meta {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .phase.is-open {
+      border-color: var(--good);
+      box-shadow: inset 3px 0 0 var(--good);
+    }
+    .phase.is-done {
+      opacity: 0.8;
+    }
+    .phase[aria-current="page"] {
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    .modal-section {
+      margin-top: var(--sp-4);
+    }
+    .modal-section h4 {
+      font-size: var(--fs-sm);
+      font-weight: 700;
+      margin: 0 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px 16px;
+      margin: 0;
+    }
+    .kv-grid div {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .kv-grid dt {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+    }
+    .kv-grid dd {
+      margin: 0;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── 계속 지켜볼 지표 ── */
+    .watch-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .watch-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      border-top: 1px solid var(--border);
+      font-size: var(--fs-sm);
+    }
+    .watch-item:first-child {
+      border-top: none;
+    }
+    .watch-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--good);
+    }
+    .watch-item.is-warn .watch-dot {
+      background: var(--warn);
+    }
+    .watch-item.is-bad .watch-dot {
+      background: var(--bad);
+    }
+    .watch-item .w-label {
+      font-weight: 600;
+    }
+    .watch-item .w-note {
+      font-size: var(--fs-xs);
+      color: var(--text-muted);
+    }
+    .watch-item .w-val {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .watch-item button.w-link {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .watch-item button.w-link:hover .w-label {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+
+    /* ── 튜토리얼 ── */
+    #gmTutorial {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+    }
+    #gmTutorial[hidden] {
+      display: none;
+    }
+    .tut-spot {
+      position: fixed;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 0 0 9999px rgba(14, 17, 23, 0.62);
+      outline: 2px solid var(--accent);
+      transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+      pointer-events: none;
+    }
+    .tut-card {
+      position: fixed;
+      background: var(--surface);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--e3);
+      padding: var(--sp-4);
+    }
+    .tut-title {
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      margin: 4px 0 8px;
+    }
+    .tut-body {
+      font-size: var(--fs-sm);
+      line-height: 1.65;
+      color: var(--text-main);
+    }
+    .tut-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: var(--sp-4);
+    }
+
+    /* 그리드 칸이 넓은 표 때문에 늘어나지 않도록 (표는 .table-wrap 안에서 가로 스크롤) */
+    .grid-2col > *,
+    .fo-grid > *,
+    .grid-3col > * {
+      min-width: 0;
+    }
+  </style>
+</head>
+<body>
+  <!-- 우측 상단 테마 토글 (로비 화면용) -->
+  <button type="button" class="lobby-theme-floating" id="btnLobbyTheme">밝게</button>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       [화면 A] 시작 슬롯 선택 & 새 단장 만들기 화면 (스크린샷 1·2 동일 구조)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="lobbyContainer" class="lobby-wrap">
+    <div class="lobby-header">
+      <h1 class="lobby-main-title">나만의 야구 단장 만들기</h1>
+      <p class="lobby-subtitle">
+        2025년 1월 1일 스토브리그 → 9월 3주차 신인 드래프트 → KBO 1군 · 단장 모드 <strong>v1.0</strong>
+      </p>
+      <button type="button" class="lobby-guide-pill" id="btnOpenGuideModal">게임 설명</button>
+    </div>
+
+    <!-- (A-1) 슬롯 목록 뷰 -->
+    <div id="lobbySlotView">
+      <div class="lobby-sec-title">단장 세이브 슬롯 — 최대 3개 (+ 자동 저장)</div>
+      <div id="lobbySlotCards" class="lobby-slot-list">
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon"></div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 128.38억 · 신임도 81
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="slot_1">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="slot_1">비우기</button>
+            </div>
+          </div>
+        
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon"></div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 120억 · 신임도 60
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="slot_2">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="slot_2">비우기</button>
+            </div>
+          </div>
+        
+            <div class="lobby-slot-card empty">
+              <div class="lobby-slot-left">
+                <div class="lobby-plus-icon">+</div>
+                <div>
+                  <div class="lobby-slot-name" style="font-size:15px">단장 3 — 빈 슬롯</div>
+                  <div class="lobby-slot-sub">새 단장 프로필을 생성하고 담당 구단에 부임하세요 (3년 8억 계약)</div>
+                </div>
+              </div>
+              <div class="lobby-slot-right">
+                <button type="button" class="btn-new-gm-pill" data-lobby-new="slot_3">새 단장 만들기</button>
+              </div>
+            </div>
+          
+          <div class="lobby-slot-card">
+            <div class="lobby-slot-left">
+              <div class="lobby-ball-icon"></div>
+              <div>
+                <div class="lobby-slot-name">백승수</div>
+                <div class="lobby-slot-sub">
+                  2025시즌 1주차 · <strong>광주 고양이즈 (KIA) [구단 고정]</strong> · 데이터 분석가<br>
+                  전적 0승 0패 0무 (승률 .000) · 보유 예산 120억 · 신임도 60
+                </div>
+              </div>
+            </div>
+            <div class="lobby-slot-right">
+              <button type="button" class="btn-continue-link" data-lobby-continue="auto_save">이어하기</button>
+              <button type="button" class="btn-clear-pill" data-lobby-clear="auto_save">비우기</button>
+            </div>
+          </div>
+        </div>
+
+      <div class="lobby-bottom-bar">
+        <button type="button" class="lobby-row-action" id="btnLobbyExportHtml">
+          <span>Netlify 배포용 단일 index.html 다운로드</span>
+          <span>&gt;</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- (A-2) 새 단장 만들기 폼 뷰 (스크린샷 2 동일 디자인 · 구단 선택 시 영구 고정) -->
+    <div id="lobbyCreateView" class="create-card" hidden="">
+      <label class="create-field-label" for="createGmName">단장 이름</label>
+      <input type="text" id="createGmName" class="create-text-input" placeholder="이름을 적어 주세요" value="백승수">
+
+      <label class="create-field-label">단장 출신 배경 (특성 선택)</label>
+      <div class="create-pill-row" id="createTraitGroup">
+        <button type="button" class="create-choice-pill active" data-create-trait="DATA_ANALYST">데이터 분석가 (스카우트 +1)</button>
+        <button type="button" class="create-choice-pill" data-create-trait="FIELD_EXPERT">현장 출신 (신임도 +10)</button>
+        <button type="button" class="create-choice-pill" data-create-trait="NEGOTIATOR">협상의 달인 (요구액 -5%)</button>
+      </div>
+
+      <label class="create-field-label">경제 난이도 (모기업 지원금 · 자체 수입 · 적자 페널티)</label>
+      <div class="create-pill-row" id="createDifficultyGroup">
+        <button type="button" class="create-choice-pill" data-create-difficulty="EASY" title="모기업 지원 +15억 · 수입 ×1.25 · 증액 승인 +15%p · 적자 페널티 없음">쉬움 (지원 넉넉)</button>
+        <button type="button" class="create-choice-pill active" data-create-difficulty="NORMAL" title="상위권을 지키려면 구단주 추가 지원이 필요한 수준">보통 (권장)</button>
+        <button type="button" class="create-choice-pill" data-create-difficulty="HARD" title="모기업 지원 -10억 · 수입 ×0.8 · 증액 승인 -12%p · 적자 시 신임도 급락">어려움 (긴축 경영)</button>
+      </div>
+
+      <label class="create-field-label">단장 첫 계약 조건 (고정)</label>
+      <div class="create-pill-row" style="grid-template-columns: 1fr 1fr;">
+        <div class="create-choice-pill active" style="cursor:default">3년 계약 · 총액 8억 원</div>
+        <div class="create-choice-pill active" style="cursor:default">계약금 2억 원 + 연봉 2억 원</div>
+      </div>
+
+      <label class="create-field-label">담당 구단 선택 (한 번 정해지면 변경 불가 · 2024 순위 역순 예산)</label>
+      <div class="create-team-grid" id="createTeamGrid">
+          <button type="button" class="create-team-box active" data-select-create-team="KIA">
+            <span class="t-name">KIA (광주)</span>
+            <span class="t-sub">24시즌 1위 · 전력 78</span>
+            <span class="t-bud">예산 120억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="SAM">
+            <span class="t-name">삼성 (대구)</span>
+            <span class="t-sub">24시즌 2위 · 전력 76</span>
+            <span class="t-bud">예산 125억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="LG">
+            <span class="t-name">LG (서울)</span>
+            <span class="t-sub">24시즌 3위 · 전력 76</span>
+            <span class="t-bud">예산 130억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="DOO">
+            <span class="t-name">두산 (잠실)</span>
+            <span class="t-sub">24시즌 4위 · 전력 74</span>
+            <span class="t-bud">예산 140억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="KT">
+            <span class="t-name">kt (수원)</span>
+            <span class="t-sub">24시즌 5위 · 전력 73</span>
+            <span class="t-bud">예산 145억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="SSG">
+            <span class="t-name">SSG (인천)</span>
+            <span class="t-sub">24시즌 6위 · 전력 73</span>
+            <span class="t-bud">예산 150억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="LOT">
+            <span class="t-name">롯데 (부산)</span>
+            <span class="t-sub">24시즌 7위 · 전력 71</span>
+            <span class="t-bud">예산 155억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="HAN">
+            <span class="t-name">한화 (대전)</span>
+            <span class="t-sub">24시즌 8위 · 전력 71</span>
+            <span class="t-bud">예산 160억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="NC">
+            <span class="t-name">NC (창원)</span>
+            <span class="t-sub">24시즌 9위 · 전력 70</span>
+            <span class="t-bud">예산 165억</span>
+          </button>
+        
+          <button type="button" class="create-team-box " data-select-create-team="KIW">
+            <span class="t-name">키움 (고척)</span>
+            <span class="t-sub">24시즌 10위 · 전력 67</span>
+            <span class="t-bud">예산 175억</span>
+          </button>
+        </div>
+
+      <div id="createTeamDescBox" class="create-desc-box">
+        <strong>[1위 광주 고양이즈 (KIA) — 한국시리즈 디펜딩 챔피언 / 우승 목표]</strong><br>
+        1군 평균 체급 <strong>78</strong> · 2군 체급 <strong>62</strong> · 초기 배정 예산 <strong>120억</strong> (난이도: 보통).<br>
+        첫 계약은 <strong>[3년 계약 / 총액 8억 원 (계약금 2억 + 연봉 2억)]</strong>으로 고정되며, <strong>2025년 1월 1일</strong> 스토브리그부터 즉시 업무를 시작합니다. <strong>한 번 선택한 담당 구단은 중도 변경이 불가능합니다.</strong>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button type="button" class="create-choice-pill active" id="btnConfirmCreateGM" style="flex:2;border-radius:14px;padding:15px">
+          단장 부임하기 (2025년 1월 1일 스토브리그 시작)
+        </button>
+        <button type="button" class="create-choice-pill" id="btnCancelCreateGM" style="flex:1;border-radius:14px;padding:15px">
+          슬롯 목록으로
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       [화면 B] 단장 모드 메인 대시보드 (담당 구단 변경 불가 · 고정)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="dashboardAppWrap" hidden="">
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       상단 3-Zone 내비게이션 바
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <a class="skip-link" href="#mainContent">본문으로 건너뛰기</a>
+  <header class="top-bar">
+    <a href="#top" class="brand-title"><span>프런트 오피스</span><span class="brand-team" id="hdrLockedTeamName">광주 고양이즈</span></a>
+
+    <nav class="area-nav" aria-label="업무 영역">
+      <button type="button" class="area-link" data-area="office" aria-current="page">단장실</button>
+      <button type="button" class="area-link" data-area="squad">선수단</button>
+      <button type="button" class="area-link" data-area="scouting">스카우팅</button>
+      <button type="button" class="area-link" data-area="contracts">계약·이적</button>
+      <button type="button" class="area-link" data-area="ops">구단 운영</button>
+      <button type="button" class="area-link" data-area="records">기록실</button>
+    </nav>
+
+    <div class="top-actions">
+      <button type="button" class="icon-btn" id="btnNotifInbox" aria-label="알림함 열기">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="badge-dot" id="notifCount" hidden>0</span>
+      </button>
+      <button type="button" class="icon-btn" id="btnQuickAutoSave">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        <span>저장</span>
+      </button>
+      <div class="menu-wrap">
+        <button type="button" class="icon-btn" id="btnSystemMenu" aria-haspopup="true" aria-expanded="false" aria-controls="systemMenu" aria-label="설정 메뉴">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <div class="menu-pop" id="systemMenu" role="menu" hidden>
+          <div class="menu-label">게임</div>
+          <button type="button" role="menuitem" data-main-tab="storage">저장 · 불러오기</button>
+          <button type="button" role="menuitem" id="btnThemeToggle">어두운 화면</button>
+          <button type="button" role="menuitem" id="btnReplayTutorial">튜토리얼 다시 보기</button>
+          <button type="button" role="menuitem" id="btnOpenGuideInGame">게임 설명</button>
+          <button type="button" role="menuitem" id="btnBackToLobby">슬롯 화면으로 나가기</button>
+          <hr>
+          <div class="menu-label">개발 도구</div>
+          <button type="button" role="menuitem" id="btnHeaderWiringAudit">1,000회 진단</button>
+          <button type="button" role="menuitem" id="btnHeaderBalanceCheck">8시즌 밸런스 진단</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="gm-container" id="top">
+    <!-- 상태 바: 단장이 매일 확인하는 숫자만 (날짜 · 순위 · 돈 · 신임 · 다음 마감 · 진행) -->
+    <section class="status-bar" aria-label="구단 현황">
+      <div class="sb-cell">
+        <span class="sb-label">오늘</span>
+        <span class="sb-val" id="hdrSeasonBadge">2025년 1월 1일</span>
+        <span class="sb-sub" id="hdrOwnerGoal">구단주 목표: 포스트시즌</span>
+      </div>
+      <div class="sb-cell">
+        <span class="sb-label">순위 · 전적</span>
+        <span class="sb-val" id="hdrRank">-</span>
+        <span class="sb-sub" id="hdrTeamMeta"></span>
+      </div>
+      <div class="sb-cell">
+        <span class="sb-label">예산 <button type="button" class="btn-xs ghost" id="btnOpenBudgetRequestModal" title="재정 장부 보기 · 구단주에게 증액 요청">재정</button></span>
+        <span class="sb-val" id="hdrBudget">150억</span>
+        <span class="sb-sub" id="hdrPayrollSub">연봉 80억 · 여유 70억</span>
+      </div>
+      <div class="sb-cell">
+        <div class="sb-gauges" role="group" aria-label="신임도">
+          <span>구단주</span><div class="gauge-track"><div id="hdrTrustBar" class="gauge-fill" style="width:80%"></div></div><span id="hdrTrustVal" class="g-val">80</span>
+          <span>감독</span><div class="gauge-track"><div id="hdrMgrTrustBar" class="gauge-fill" style="width:75%"></div></div><span id="hdrMgrTrustVal" class="g-val">75</span>
+          <span>팬</span><div class="gauge-track"><div id="hdrFanBar" class="gauge-fill" style="width:60%"></div></div><span id="hdrFanVal" class="g-val">60</span>
+        </div>
+      </div>
+      <button type="button" class="sb-cell sb-deadline" id="hdrNextDeadline" aria-label="다음 마감으로 이동">
+        <span class="sb-label">다음 마감</span>
+        <span class="sb-val" id="hdrNextDeadlineVal">-</span>
+      </button>
+      <div class="sb-cell sb-sim">
+        <button type="button" class="btn-primary" id="btnNextDay">+1일</button>
+        <button type="button" class="btn-secondary" id="btnNextWeek">+1주</button>
+        <button type="button" class="btn-secondary" id="btnNext4Weeks">+4주</button>
+      </div>
+    </section>
+
+    <div class="page-head" id="mainContent" tabindex="-1">
+      <h1 class="page-title" id="areaPageTitle">단장실</h1>
+      <span class="page-desc" id="areaPageDesc"></span>
+    </div>
+    <nav class="sub-nav" id="areaSubNav" aria-label="하위 메뉴"></nav>
+    <div class="phase-strip" id="stovePhaseStrip" role="group" aria-label="스토브리그 단계" hidden></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [단장실] 결정 대기함 · 받은 보고 · 마감 타임라인 · 팀 현황 → 순위표 · 주간 경기 · 포스트시즌
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_pennant">
+      <div class="fo-grid">
+        <div>
+          <section class="fo-card" aria-labelledby="foDecisionTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foDecisionTitle">결정 대기함 <span class="tiny muted">한 번 처리하면 끝나는 일</span></h2>
+              <span class="fo-card-note" id="foDecisionNote"></span>
+            </div>
+            <div id="todaysTodoPanel"></div>
+          </section>
+          <section class="fo-card" aria-labelledby="foAdviceTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foAdviceTitle">비서 추천 <span class="it it-opinion">의견</span></h2>
+              <span class="fo-card-note" id="foAdviceNote"></span>
+            </div>
+            <ul id="foAdvice" class="decision-list"></ul>
+          </section>
+          <section class="fo-card" aria-labelledby="foInboxTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foInboxTitle">받은 보고</h2>
+              <div class="legend" aria-label="정보 유형 범례">
+                <span><span class="it it-fact">확정</span> 기록·결과</span>
+                <span><span class="it it-est">추정</span> 오차 있음</span>
+                <span><span class="it it-opinion">의견</span> 이해관계 있음</span>
+              </div>
+            </div>
+            <div id="foInboxFilter" class="inbox-tabs" role="group" aria-label="보고 출처"></div>
+            <ul id="pennantWeeklyNews" class="inbox-list"></ul>
+          </section>
+        </div>
+        <div>
+          <section class="fo-card" aria-labelledby="foTimelineTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foTimelineTitle">마감 · 일정</h2>
+              <span class="fo-card-note">앞으로 60일</span>
+            </div>
+            <ol id="foTimeline" class="timeline"></ol>
+          </section>
+          <section class="fo-card" aria-labelledby="foWatchTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foWatchTitle">계속 지켜볼 지표</h2>
+              <span class="fo-card-note">매일 바뀌는 상태</span>
+            </div>
+            <ul id="foWatch" class="watch-list"></ul>
+          </section>
+          <section class="fo-card" aria-labelledby="foStatusTitle">
+            <div class="fo-card-head">
+              <h2 class="fo-card-title" id="foStatusTitle">팀 현황</h2>
+              <span class="it it-fact">확정</span>
+            </div>
+            <dl id="pennantTeamStatSummary" class="kpi-grid"></dl>
+          </section>
+        </div>
+      </div>
+
+      <div class="grid-2col">
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title">리그 순위</h2>
+            <span class="tiny">점선 위 5개 구단이 포스트시즌 진출</span>
+          </div>
+          <div class="table-wrap">
+            <table class="gm-table">
+              <thead>
+                <tr>
+                  <th scope="col">순위</th>
+                  <th scope="col">구단</th>
+                  <th scope="col">경기</th>
+                  <th scope="col">승</th>
+                  <th scope="col">패</th>
+                  <th scope="col">무</th>
+                  <th scope="col">승률</th>
+                  <th scope="col">게임차</th>
+                  <th scope="col">득점</th>
+                  <th scope="col">실점</th>
+                  <th scope="col">득실차</th>
+                  <th scope="col">신임도</th>
+                  <th scope="col">팬심</th>
+                </tr>
+              </thead>
+              <tbody id="pennantStandingsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2 class="panel-title">이번 주 경기 결과</h2>
+            <span class="tiny">카드를 누르면 박스스코어</span>
+          </div>
+          <div id="pennantWeeklyMatches"></div>
+        </div>
+      </div>
+
+      <div id="pennantPostseasonPanel" class="panel"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 2] 로스터 & 1군/2군/육성군 관리 (Fog of War 적용)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_roster" hidden="">
+      <div class="panel">
+        <div class="panel-head">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <h2 class="panel-title">로스터 · 엔트리</h2>
+            <select id="rosterTeamSelect" class="gm-select" aria-label="조회 구단 선택"></select>
+          </div>
+          <button type="button" class="btn-secondary" id="btnUpgradeScout">스카우트 Lv.3 증설</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:10px">
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-roster-sub="1GUN">1군 엔트리 (<span id="cntRoster1G" class="tnum">28/28</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="2GUN">2군 퓨처스 (<span id="cntRoster2G" class="tnum">22/30</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="YUKSEONG">육성군 (<span id="cntRosterDev" class="tnum">10</span>)</button>
+            <button type="button" class="subtab-btn" data-roster-sub="MILITARY">상무 군보류 (<span id="cntRosterMil" class="tnum">0/4</span>)</button>
+          </div>
+
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-pos-filter="ALL">전체 포지션</button>
+            <button type="button" class="subtab-btn" data-pos-filter="pitcher">투수진 (SP/RP/CP)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="C">포수 (C)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="IF">내야수 (IF/DH)</button>
+            <button type="button" class="subtab-btn" data-pos-filter="OF">외야수 (OF)</button>
+          </div>
+        </div>
+
+        <div id="rosterReleaseBanner" class="weekly-summary-banner" style="margin-bottom:10px"></div>
+        <div id="futuresTeamSummaryBanner" style="margin-bottom:10px"></div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th data-roster-sort="pos" style="cursor:pointer" title="클릭하여 보직순 정렬">보직 <span id="sortInd_pos"></span></th>
+                <th data-roster-sort="name" style="cursor:pointer" title="클릭하여 이름순 정렬">선수명 <span id="sortInd_name"></span></th>
+                <th class="num" data-roster-sort="age" style="cursor:pointer" title="클릭하여 나이순 정렬">나이 <span id="sortInd_age"></span></th>
+                <th>투타</th>
+                <th class="num" data-roster-sort="ovr" style="cursor:pointer" title="클릭하여 OVR순 정렬">OVR <span id="sortInd_ovr"></span></th>
+                <th class="num" data-roster-sort="potential" style="cursor:pointer" title="클릭하여 포텐셜순 정렬">포텐셜 <span id="sortInd_potential"></span></th>
+                <th colspan="4" class="num" id="rosterRecHead">이번 시즌 기록</th>
+                <th class="num" data-roster-sort="war" style="cursor:pointer" title="클릭하여 WAR순 정렬">WAR <span id="sortInd_war"></span></th>
+                <th class="num" data-roster-sort="salary" style="cursor:pointer" title="클릭하여 연봉순 정렬">연봉 <span id="sortInd_salary"></span></th>
+                <th data-roster-sort="fatigue" style="cursor:pointer" title="클릭하여 피로도순 정렬">상태/피로도 <span id="sortInd_fatigue"></span></th>
+                <th>동작</th>
+              </tr>
+            </thead>
+            <tbody id="rosterTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 3] 스토브리그 / 프런트 오피스 업무 (드래프트 · 연봉 · FA · 외국인 · 캠프)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_offseason" hidden="">
+      <div class="legacy-subtabs">
+        <div class="subtab-bar">
+          <button type="button" class="subtab-btn active" data-off-sub="draft">01. 신인 드래프트장 (고교·대학·독립리그)</button>
+          <button type="button" class="subtab-btn" data-off-sub="salary">02. 연봉 재계약 · 조정위</button>
+          <button type="button" class="subtab-btn" data-off-sub="fa">03. FA 시장 (A/B/C 등급)</button>
+          <button type="button" class="subtab-btn" data-off-sub="foreign">04. 외국인 · 아시아 쿼터 영입</button>
+          <button type="button" class="subtab-btn" data-off-sub="camp">05. 코치진 인선 · 스프링캠프</button>
+          <button type="button" class="subtab-btn" data-off-sub="trade">06. 단장 간 트레이드 협상실 (지명권·현금)</button>
+          <button type="button" class="subtab-btn" data-off-sub="front5">07. 프런트 핵심 &amp; 5대 심화 (포스트시즌·2차드래프트·상무·R&amp;D·샐러리캡·포스팅·구장개조·2군육성·사기·보호명단)</button>
+        </div>
+      </div>
+
+      <!-- (3-1) 신인 드래프트 패널 -->
+      <div id="offPanel_draft" class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">신인 드래프트 <span class="tiny">1~3라운드 직접 지명 · 4라운드부터 스카우트팀 위임</span></h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-primary" id="btnDraftAutoRound">현재 라운드 스카우트 추천 지명</button>
+            <button type="button" class="btn-secondary" id="btnDraftPassRound">지명권 포기 (PASS)</button>
+            <button type="button" class="btn-secondary" id="btnDraftRunAll">1~10R 전 구단 자동 완료</button>
+          </div>
+        </div>
+
+        <div id="draftStatusBanner" class="weekly-summary-banner"></div>
+        <div id="amateurScoutDispatchBox"></div>
+        <div id="draftPolicyBox"></div>
+        <div id="youthViewingBox"></div>
+
+        <h3 style="font-size:14px;margin:14px 0 8px">스카우트 팀 추천 지명 후보 (BPA + 포지션 보강 분석)</h3>
+        <div id="draftRecGrid" class="scout-grid"></div>
+
+        <div class="grid-2col">
+          <div>
+            <h3 style="font-size:14px;margin:8px 0">드래프트 참가 유망주 풀 (상위 40명)</h3>
+            <div class="table-wrap">
+              <table class="gm-table compact">
+                <thead>
+                  <tr>
+                    <th>순위</th>
+                    <th>포지션</th>
+                    <th>이름</th>
+                    <th>소속</th>
+                    <th>추정 OVR</th>
+                    <th>예상 라운드</th>
+                    <th class="num">동작</th>
+                  </tr>
+                </thead>
+                <tbody id="draftPoolTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 style="font-size:14px;margin:8px 0">우리 구단 지명 결과 리포트</h3>
+            <div id="draftMyPicksLog"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- (3-2A) 연봉 재계약 패널 -->
+      <div id="offPanel_salary" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">선수단 연봉 재계약 및 연봉 조정 위원회</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div class="subtab-bar">
+              <button type="button" class="subtab-btn active" data-salary-policy="FAIR">적정안 (WAR 기반)</button>
+              <button type="button" class="subtab-btn" data-salary-policy="GENEROUS">후한 인상 (+6%)</button>
+              <button type="button" class="subtab-btn" data-salary-policy="AUSTERITY">긴축 삭감 (-20%)</button>
+            </div>
+            <button type="button" class="btn-primary" id="btnRunSalaryRenewals">전 구단 연봉 재계약 일괄 실행</button>
+          </div>
+        </div>
+
+        <div id="salaryResultReport" style="margin-bottom:14px"></div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>보직</th>
+                <th>선수명</th>
+                <th>시즌 WAR</th>
+                <th>기존 연봉</th>
+                <th>산출 적정 연봉</th>
+                <th>구단 제시액 (억 원)</th>
+                <th>증감액</th>
+              </tr>
+            </thead>
+            <tbody id="salaryTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-2B) FA 시장 패널 -->
+      <div id="offPanel_fa" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">KBO FA 시장 (A/B/C 등급제 &amp; 20인 외 보상선수)</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnDeclareFA">FA 자격 선수 공시</button>
+            <button type="button" class="btn-primary" id="btnRunFAMarket">FA 시장 입찰 마감 및 결과 발표</button>
+          </div>
+        </div>
+
+        <div id="faResultReport" style="margin-bottom:14px"></div>
+
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>등급</th>
+                <th>선수명</th>
+                <th>원소속구단</th>
+                <th>핵심 능력치 (OVR / 5대 스탯)</th>
+                <th>시즌 WAR</th>
+                <th>선수 요구 조건</th>
+                <th>타구단 영입 시 보상 규약</th>
+                <th>우리 구단 입찰 제시</th>
+                <th>입찰</th>
+              </tr>
+            </thead>
+            <tbody id="faMarketTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-2C) 외국인 선수 & 아시아 쿼터 계약 패널 -->
+      <div id="offPanel_foreign" class="panel" hidden="">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">외국인 선수 3인 쿼터 (투수 2 + 타자 1) &amp; 아시아 쿼터 1인 별도 영입</h2>
+            <div class="tiny">재계약 유지/제외 선택 및 MLB·NPB 상위리그 오퍼 대응 연봉 협상을 진행할 수 있습니다. (3명 모두 제외하고 전원 신규 교체도 가능)</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnForeignSelectAllKeep">3인 전원 유지 선택</button>
+            <button type="button" class="btn-secondary" id="btnForeignClearAllKeep">3인 전원 제외(교체)</button>
+            <button type="button" class="btn-primary" id="btnRunForeignContracts">외국인 재계약 및 신규 영입 확정</button>
+          </div>
+        </div>
+
+        <div id="foreignResultReport" style="margin-bottom:12px"></div>
+
+        <h3 style="font-size:14px;margin:0 0 8px">현재 보유 외국인 선수 (재계약 유지/제외 선택 &amp; 상위리그 오퍼 대응 연봉 협상)</h3>
+        <div id="foreignCurrentList" class="scout-grid"></div>
+
+        <!-- [신규 요청 11] KBO 아시아 쿼터제 (구단당 1명 별도 보유 가능) -->
+        <div id="asianQuarterSectionBox" style="margin:18px 0;padding:14px;background:rgba(15,23,42,0.72);border:1px solid rgba(56,189,248,0.35);border-radius:10px"></div>
+
+        <h3 style="font-size:14px;margin:16px 0 8px">NPB / AAA 해외 스카우트 추천 외국인 후보 리스트</h3>
+        <div class="table-wrap">
+          <table class="gm-table">
+            <thead>
+              <tr>
+                <th>보직</th>
+                <th>선수명 (리그/국적)</th>
+                <th>나이</th>
+                <th>스카우트 OVR</th>
+                <th>해외 리그 성적</th>
+                <th>예상 계약 총액</th>
+                <th>영입 지정</th>
+              </tr>
+            </thead>
+            <tbody id="foreignPoolTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (3-3) 코치진 인선 & 스프링캠프 & 새 시즌 개막 패널 -->
+      <div id="offPanel_camp" class="panel" hidden="">
+        <div class="panel-head">
+          <h2 class="panel-title">코칭스태프 인선 · 스프링캠프 · 새 시즌 개막</h2>
+          <button type="button" class="btn-primary" id="btnStartNewSeason">개막일(3월 22일)까지 진행</button>
+        </div>
+
+        <div id="currentStaffSummary" class="weekly-summary-banner"></div>
+
+        <div class="grid-2col">
+          <div class="panel" style="margin-bottom:0">
+            <h3 style="font-size:14.5px;margin:0 0 10px">1. 감독 및 투수·타격 코치 선임 (100% 가상 인재 풀)</h3>
+            <div style="display:grid;gap:10px">
+              <div>
+                <label for="campMgrSelect" class="metric-block-label">감독 선임 (데이터 / 스몰볼 / 육성 / 윈나우)</label>
+                <select id="campMgrSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <div>
+                <label for="campPitSelect" class="metric-block-label">투수코치 선임</label>
+                <select id="campPitSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <div>
+                <label for="campHitSelect" class="metric-block-label">타격코치 선임</label>
+                <select id="campHitSelect" class="gm-select" style="width:100%"></select>
+              </div>
+              <button type="button" class="btn-secondary" id="btnConfirmStaff">코칭스태프 계약 확정</button>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:0">
+            <h3 style="font-size:14.5px;margin:0 0 10px">2. 전지훈련(스프링캠프) 출발</h3>
+            <div style="display:grid;gap:10px">
+              <div>
+                <label for="campLocSelect" class="metric-block-label">전지훈련 캠프지 선택</label>
+                <select id="campLocSelect" class="gm-select" style="width:100%">
+                  <option value="USA">미국 애리조나/플로리다 캠프 (비용 3.5억 · 부상위험 최저 · 성장/신구종 최고)</option>
+                  <option value="OKINAWA">일본 오키나와/미야자키 캠프 (비용 2.2억 · 실전감각 · 균형 성장)</option>
+                  <option value="DOMESTIC">국내 1차 캠프 (비용 0.5억 · 꽃샘추위 부상 위험 · 컨디션 저하)</option>
+                </select>
+              </div>
+              <div>
+                <label for="campFocusSelect" class="metric-block-label">캠프 중점 훈련 테마</label>
+                <select id="campFocusSelect" class="gm-select" style="width:100%">
+                  <option value="BALANCED">투타 밸런스 종합 훈련</option>
+                  <option value="PITCHING">마운드 구위·제구·신구종 집중 연마</option>
+                  <option value="HITTING">타선 장타력·컨택·선구안 집중 강화</option>
+                </select>
+              </div>
+              <button type="button" class="btn-primary" id="btnRunSpringCamp">스프링캠프 출발 (14일 전지훈련 시작)</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="campResultReport" style="margin-top:14px"></div>
+      </div>
+
+      <!-- (3-4) [신규 요청 8 & 9] 단장 간 트레이드 협상실 (다대다 선수 + 드래프트 지명권 양도 + 현금 트레이드 + 7월 31일 마감 시한) -->
+      <div id="offPanel_trade" class="panel" hidden="">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">KBO 단장 간 트레이드 협상 테이블 (상대 구단 선택 · 직접 카드 제안 · 지명권 · 현금)</h2>
+            <div class="tiny">상대 구단을 선택한 뒤 우리 선수와 상대 선수를 체크하여 <strong>내가 직접 트레이드를 제안</strong>하거나, AI 단장의 역제안을 받아볼 수 있습니다. (매년 7월 31일 마감)</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn-secondary" id="btnFindTradeOffers">선택한 우리 선수로 타구단 오퍼 탐색</button>
+            <button type="button" class="btn-secondary" id="btnTradeAutoBalance">AI 단장 조건 자동 조율 (지명권·현금)</button>
+            <button type="button" class="btn-primary" id="btnExecutePackageTrade">내가 구성한 카드로 직접 트레이드 제안</button>
+          </div>
+        </div>
+
+        <div id="tradeDeadlineBanner" class="weekly-summary-banner" style="margin-bottom:12px"></div>
+        <div id="tradeNegotiationTableBox"></div>
+        <div id="tradeOffersExplorerBox" style="margin-top:12px"></div>
+        <div id="tradeHistoryLogBox" style="margin-top:14px"></div>
+      </div>
+
+      <!-- (3-5) [PART 4] KBO 5대 프런트 핵심 시스템 통합 컨트롤 타워 -->
+      <div id="offPanel_front5" hidden="">
+        <div id="front5DashboardContainer"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 4-A] R&D 시설 & 2군 육성 (스포츠 사이언스 재활센터 · 2군 바이오메카닉스 랩 · 데이터 스카우트 본부 · 2군 맞춤 훈련 · 상무 병역)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_facilities" hidden="">
+      <div id="facilitiesTabContainer"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 4-B] 감독 & 미디어 인터뷰 (현장 감독 성향/갈등 수치 · 기용 거부 면담 · 감봉 집단 항명 미디어 여론전 · 연봉조정위)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_manager" hidden="">
+      <div id="managerTabContainer"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 4] 데이터 기록실 (KBO 타자/투수 WAR 리더 · NPB · 고교/대학 유망주 · 역대 시즌)
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_records" hidden="">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">기록</h2>
+          <div class="subtab-bar">
+            <button type="button" class="subtab-btn active" data-rec-sub="kboBat">KBO 타자 WAR 순위</button>
+            <button type="button" class="subtab-btn" data-rec-sub="kboPit">KBO 투수 WAR 순위</button>
+            <button type="button" class="subtab-btn" data-rec-sub="npb">NPB / 해외 스카우트 풀 (300명)</button>
+            <button type="button" class="subtab-btn" data-rec-sub="amateur">고교/대학 유망주 랭킹 (200명)</button>
+            <button type="button" class="subtab-btn" data-rec-sub="history">역대 시즌 결산</button>
+            <button type="button" class="subtab-btn" data-rec-sub="retro">시즌 회고 리포트</button>
+          </div>
+        </div>
+
+        <div id="recordsContentBox"></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         [탭 5] 신규 단장 부임 세팅 · IndexedDB 저장소 · 단일 index.html 번들 다운로드
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <section id="tab_storage" hidden="">
+      <!-- 새 단장 시작은 슬롯 화면에서만 한다 (진행 중인 게임을 실수로 덮어쓰지 않도록 숨김) -->
+      <div class="panel" hidden>
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">신임 단장 프로필 생성 및 2025년 1월 1일 새 시즌 시작 (KBO_GM.Setup)</h2>
+            <div class="tiny">단장 초기 고정 계약: <strong>3년 총액 8억 원 (계약금 2억 원 + 연봉 2억 원)</strong> · 2024 KBO 최종 순위 역순 예산 배정</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+          <div>
+            <label for="setupGmName" class="metric-block-label">단장 이름</label>
+            <input type="text" id="setupGmName" class="gm-select" value="백승수" style="min-width:140px">
+          </div>
+          <div>
+            <label for="setupGmTrait" class="metric-block-label">단장 출신 배경 (특성)</label>
+            <select id="setupGmTrait" class="gm-select">
+              <option value="DATA_ANALYST">데이터 분석가 (스카우트 Lv.+1 보정)</option>
+              <option value="FIELD_EXPERT">현장 출신 (구단주 초기 신임도 +10 · 사기 상승)</option>
+              <option value="NEGOTIATOR">협상의 달인 (FA·연봉 재계약 요구액 5% 절감)</option>
+            </select>
+          </div>
+          <div>
+            <label for="setupTeamId" class="metric-block-label">부임 구단 (2024 순위 / 예산)</label>
+            <select id="setupTeamId" class="gm-select">
+              <option value="KIA">1위 KIA (광주 고양이즈 · 전력 78 · 예산 120억)</option>
+              <option value="SAM">2위 삼성 (대구 표범즈 · 전력 76 · 예산 125억)</option>
+              <option value="LG">3위 LG (서울 쌍둥이즈 · 전력 76 · 예산 130억)</option>
+              <option value="DOO">4위 두산 (잠실 판다즈 · 전력 74 · 예산 140억)</option>
+              <option value="KT">5위 kt (수원 도깨비즈 · 전력 73 · 예산 145억)</option>
+              <option value="SSG">6위 SSG (인천 물범즈 · 전력 73 · 예산 150억)</option>
+              <option value="LOT">7위 롯데 (부산 갈매기즈 · 전력 71 · 예산 155억)</option>
+              <option value="HAN">8위 한화 (대전 송골매즈 · 전력 71 · 예산 160억)</option>
+              <option value="NC">9위 NC (창원 도마뱀즈 · 전력 70 · 예산 165억)</option>
+              <option value="KIW">10위 키움 (고척 용사즈 · 전력 67 · 예산 175억)</option>
+            </select>
+          </div>
+          <div>
+            <label for="setupSlotId" class="metric-block-label">저장 슬롯</label>
+            <select id="setupSlotId" class="gm-select" style="min-width:120px">
+              <option value="slot_1">슬롯 1 (slot_1)</option>
+              <option value="slot_2">슬롯 2 (slot_2)</option>
+              <option value="slot_3">슬롯 3 (slot_3)</option>
+              <option value="auto_save">자동저장 (auto_save)</option>
+            </select>
+          </div>
+          <button type="button" class="btn-primary" id="btnStartNewGMSetup">신임 단장 부임 &amp; 2025.01.01 개막</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">저장 슬롯</h2>
+            <div class="tiny">이 브라우저에 저장됩니다. 새 단장은 ‘슬롯 화면으로 나가기’에서 시작하세요.</div>
+          </div>
+          <button type="button" class="btn-secondary" id="btnExportStandaloneHtml">단일 HTML 파일 내려받기</button>
+        </div>
+
+        <div id="storageSlotList" class="slot-grid"></div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       모달 (선수 상세 스카우팅 리포트 & 경기 박스스코어) 및 토스트 알림
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div id="gmModalBackdrop" class="modal-backdrop" hidden="">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="gmModalTitle">
+      <div class="panel-head">
+        <h3 id="gmModalTitle" class="panel-title">선수 상세 리포트</h3>
+        <button type="button" class="btn-xs" id="gmModalClose">닫기</button>
+      </div>
+      <div id="gmModalBody"></div>
+    </div>
+  </div>
+
+  <div id="gmToast" role="status" aria-live="polite"></div>
+  <div id="root" hidden=""></div>
+
+  <!-- 9개 KBO_GM 코어 엔진 & 확장 모듈 + 프런트엔드 대시보드 컨트롤러 -->
+  <script src="gm-schema.js"></script>
+  <script src="gm-match-sim.js"></script>
+  <script src="gm-weekly-sim.js"></script>
+  <script src="gm-storage.js"></script>
+  <script src="gm-draft.js"></script>
+  <script src="gm-offseason.js"></script>
+  <script src="gm-spring-camp.js"></script>
+  <script src="gm-extensions.js"></script>
+  <script src="gm-setup.js"></script>
+  <script src="gm-economy.js"></script>
+  <script src="gm-nonfa.js"></script>
+  <script src="gm-retro.js"></script>
+  <script src="gm-balance.js"></script>
+  <script src="gm-frontoffice.js"></script>
+  <script src="gm-ui.js"></script>
+</body>
+</html>
