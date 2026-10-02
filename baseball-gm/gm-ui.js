@@ -161,6 +161,7 @@
    * ═══════════════════════════════════════════════════════════════════════ */
   let createTargetSlotId = "slot_1";
   let createSelectedTrait = "DATA_ANALYST";
+  let createSelectedDifficulty = "NORMAL";
   let createSelectedTeamId = "KIA";
 
   async function renderLobbySlots() {
@@ -206,7 +207,7 @@
               <div>
                 <div class="lobby-slot-name">${esc(s.gmName || "백승수")}</div>
                 <div class="lobby-slot-sub">
-                  ${s.currentYear || 2025}시즌 ${s.currentWeek || 1}주차 · <strong>${esc(s.userTeamName)} (${esc(s.userTeamId)}) [구단 고정]</strong> · ${esc(s.gmTraitLabel || "데이터 분석가")}<br/>
+                  ${s.currentYear || 2025}시즌 ${s.currentWeek || 1}주차 · <strong>${esc(s.userTeamName)} (${esc(s.userTeamId)}) [구단 고정]</strong> · ${esc(s.gmTraitLabel || "데이터 분석가")} · 난이도 ${esc(s.difficultyLabel || "보통")}<br/>
                   전적 ${rec.w}승 ${rec.l}패 ${rec.d}무 (승률 ${s.winPctFormatted || ".000"}) · 보유 예산 ${fmtMoney(s.budget)} · 신임도 ${s.ownerTrust ?? 60}
                 </div>
               </div>
@@ -310,9 +311,12 @@
     const gmProf = ctx.gmProfile || { name: "김단장", traitLabel: "데이터 분석가" };
     const gmCon = ctx.gmContract || { yearsTotal: 3, yearsLeft: 3, totalAmount: 80000, signingBonus: 20000, annualSalary: 20000 };
 
-    $("hdrTeamMeta").textContent = `${gmProf.name} 단장 (${gmProf.traitLabel}) · 계약: ${gmCon.yearsTotal}년 총액 ${fmtMoney(gmCon.totalAmount)} (계약금 ${fmtMoney(gmCon.signingBonus)}/연봉 ${fmtMoney(gmCon.annualSalary)}, 잔여 ${gmCon.yearsLeft}년)`;
+    const diffLabel = GM.Economy ? GM.Economy.getDifficulty(ctx).label : "보통";
+    $("hdrTeamMeta").textContent = `${gmProf.name} 단장 (${gmProf.traitLabel}) · 난이도 ${diffLabel} · 계약: ${gmCon.yearsTotal}년 총액 ${fmtMoney(gmCon.totalAmount)} (계약금 ${fmtMoney(gmCon.signingBonus)}/연봉 ${fmtMoney(gmCon.annualSalary)}, 잔여 ${gmCon.yearsLeft}년)`;
     $("hdrBudget").textContent = fmtMoney(userTeam.budget);
-    $("hdrPayrollSub").textContent = `연봉총액 ${fmtMoney(payroll)} · 여유 ${fmtMoney(availBudget)} · 현재 ${rankNum}위 (${rec.w}승 ${rec.l}패 ${rec.d}무)`;
+    const payrollSubEl = $("hdrPayrollSub");
+    payrollSubEl.textContent = `연봉총액 ${fmtMoney(payroll)} · 여유 ${fmtMoney(availBudget)}${availBudget < 0 ? " (적자: 매주 구단주 신임도 하락)" : ""} · 현재 ${rankNum}위 (${rec.w}승 ${rec.l}패 ${rec.d}무)`;
+    payrollSubEl.classList.toggle("text-bad", availBudget < 0);
 
     const trust = clamp(userTeam.ownerTrust ?? 80, 0, 100);
     const fan = clamp(userTeam.fanRatio ?? 60, 0, 100);
@@ -772,7 +776,7 @@
               <span class="sep">·</span>
               <span class="tnum">전체 보유 <strong>${relStat.totalRosterSize}명</strong> (2군 ${viewTeam.roster2G.length}명 / 육성군 ${viewTeam.rosterDev.length}명)</span>
               <span class="sep">·</span>
-              <span class="tnum text-good">✅ <strong>2군·육성선수 상시 무제한 방출 가능</strong> (위약금 면제 + 연봉 예산 즉시 절감 환급)</span>
+              <span class="tnum text-good">✅ <strong>2군·육성선수 상시 무제한 방출 가능</strong> (위약금 면제 · 연봉총액에서 즉시 제외)</span>
               <span class="sep">·</span>
               <span class="tnum">1군 무료방출 쿼터: <strong>${relStat.remainingFreeReleaseQuota}명</strong></span>
             </div>
@@ -2211,7 +2215,29 @@
     const ctx = STATE.ctx;
     if (!ctx || !GM.Setup) return;
     const userTeam = ctx.getUserTeam();
-    const tiers = ["TIER_10", "TIER_25", "TIER_50"].map((tid) => GM.Setup.previewBudgetRequestOdds(ctx, tid));
+    const tiers = ["SMALL", "STANDARD", "LARGE"].map((tid) => GM.Setup.previewBudgetRequestOdds(ctx, tid));
+    const fin = GM.Economy ? GM.Economy.getFinanceSummary(ctx, userTeam) : null;
+    const financeHtml = fin
+      ? `
+      <div class="report-box" style="margin-bottom:12px">
+        <strong>📒 ${fin.year} 재정 장부 (난이도: ${esc(fin.difficulty.label)})</strong>
+        <div class="tiny tnum" style="margin-top:6px;line-height:1.7">
+          모기업 지원금 <strong>${fmtMoney(fin.subsidy)}</strong>${fin.subsidyRank ? ` (직전 시즌 ${fin.subsidyRank}위 기준 · 순위 역순 지급)` : ""}
+          · 이월금 <strong class="${fin.carryover < 0 ? "text-bad" : ""}">${fmtMoney(fin.carryover)}</strong><br>
+          시즌 자체 수입 <strong class="text-good">+${fmtMoney(fin.seasonRevenue)}</strong>
+          · 운영비 <strong class="text-bad">-${fmtMoney(fin.seasonOperatingCost)}</strong>
+          · 연봉총액 <strong>${fmtMoney(fin.payroll)}</strong>
+          · 여유 예산 <strong class="${fin.available < 0 ? "text-bad" : "text-good"}">${fmtMoney(fin.available)}</strong>
+          ${fin.deficitWeeks > 0 ? `<br><span class="text-bad">⚠️ 올해 적자 상태로 맞은 정산 ${fin.deficitWeeks}주 — 매주 구단주 신임도가 깎입니다.</span>` : ""}
+        </div>
+        <div class="tiny muted" style="margin-top:6px">
+          다음 시즌 모기업 지원금: ${fin.subsidyTable
+            .filter((r) => [1, 3, 5, 8, 10].includes(r.rank))
+            .map((r) => `${r.rank}위 ${fmtMoney(r.subsidy)}`)
+            .join(" · ")}
+        </div>
+      </div>`
+      : "";
 
     $("gmModalTitle").textContent = `💰 ${userTeam.name} 구단주 특별 운영 예산 증액 결재 상신`;
     $("gmModalBody").innerHTML = `
@@ -2224,9 +2250,10 @@
           <span>금년 증액 요청 횟수: <strong>${ctx.budgetRequestCountThisYear || 0} / 2회</strong></span>
         </div>
         <div class="tiny muted" style="margin-top:4px">
-          구단주 신임도, 현재 순위(목표 대비 성적), 단장 특성(협상의 달인 등)에 따라 승인 확률이 자체 산출됩니다. 기각 시 구단주 신임도가 소폭 하락합니다.
+          구단주 신임도, 현재 순위(목표 대비 성적), 단장 특성(협상의 달인 등), 난이도에 따라 승인 확률이 자체 산출됩니다. 기각 시 구단주 신임도가 소폭 하락합니다.
         </div>
       </div>
+      ${financeHtml}
       <div class="scout-grid">
         ${tiers
           .map(
@@ -2449,9 +2476,10 @@
       })
       .join("");
 
-    // 5) 샐러리캡(경쟁균형세 120억 상한) 및 비FA 다년 연장 계약 대상자
+    // 5) 샐러리캡(경쟁균형세: 리그 평균 상위 40인 연봉 × 120%) 및 비FA 다년 연장 계약 대상자
     const top40Payroll = ext.getTop40DomesticPayroll(userTeam);
-    const capLimit = ext.KBO_SALARY_CAP_LIMIT || 1200000;
+    const capLimit = typeof ext.getSalaryCapLimit === "function" ? ext.getSalaryCapLimit(ctx) : ext.KBO_SALARY_CAP_LIMIT || 1200000;
+    const lastTax = (userTeam.luxuryTaxHistory || []).slice(-1)[0] || null;
     const capDiff = capLimit - top40Payroll;
     const nonFaCands = ext.getNonFAExtensionCandidates(userTeam);
     const signedExts = userTeam.nonFAExtensions || [];
@@ -2675,12 +2703,12 @@
           <div class="scout-grid">${facCardsHtml}</div>
         </div>
 
-        <!-- [5] 샐러리캡(경쟁균형세 120억 상한) & 비FA 다년 연장 계약 -->
+        <!-- [5] 샐러리캡(경쟁균형세) & 비FA 다년 연장 계약 -->
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
             <div>
-              <h3 class="panel-title" style="font-size:15px">5. ⚖️ KBO 샐러리캡(경쟁균형세 120억 상한) &amp; 비FA 다년 연장 계약</h3>
-              <div class="tiny">상위 40인 국내 선수 연봉 총액이 120억 원 초과 시 초과분의 50% 야구발전기금 벌금 부과 및 차년도 1R 지명권 2계단 강등</div>
+              <h3 class="panel-title" style="font-size:15px">5. ⚖️ KBO 샐러리캡(경쟁균형세 · 올해 상한 ${fmtMoney(capLimit)}) &amp; 비FA 다년 연장 계약</h3>
+              <div class="tiny">상한 = 10개 구단 상위 40인 국내 연봉 평균의 120%. 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 연속 150% + 9단계 하락 (매년 12월 10일 심사)${lastTax && lastTax.isOverCap ? ` — 우리 구단 ${lastTax.year}년 ${lastTax.overCapStreak || 1}회 연속 초과` : ""}</div>
             </div>
             <button type="button" class="btn-sm" data-eval-luxury-tax="1">10개 구단 경쟁균형세 즉시 심사</button>
           </div>
@@ -4191,6 +4219,8 @@
             <div><strong>1. 단장 프로필 &amp; 고정 첫 계약:</strong> 첫 시작 시 단장 이름·특성·담당 구단을 선택하며, <strong>[3년 계약 / 총액 8억 원 (계약금 2억 + 연봉 2억)]</strong>으로 고정 시작합니다. <strong>담당 구단은 한 번 정해지면 변경할 수 없습니다.</strong></div>
             <div><strong>2. 2025년 1월 1일 개막 &amp; 일자 진행:</strong> 2025년 1월 1일부터 FA·연봉·외국인·코치·트레이드가 즉시 활성화되며, <strong>+1일 진행</strong> 및 <strong>+7일 스킵</strong>을 지원합니다.</div>
             <div><strong>3. 2024 순위 기반 체급 &amp; 역순 예산:</strong> 1위 KIA(전력 78 / 예산 120억)부터 10위 키움(전력 67 / 예산 175억)까지 역순 예산이 배정됩니다.</div>
+            <div><strong>3-1. 구단 재정 (난이도: 쉬움·보통·어려움):</strong> 예산은 한 해 운영 봉투이고 <strong>여유 예산 = 예산 − 연봉총액</strong>입니다. FA 계약금·첫해 연봉·시설 투자·현금 트레이드는 여유 예산 안에서만 가능합니다. 매 시즌 예산은 <strong>모기업 지원금(리그 평균 연봉 × 직전 순위 역순 배율: 1위 1.20배 ~ 10위 1.65배) + 이월금</strong>으로 정해지고, 정규시즌에는 매주 자체 수입과 운영비가 정산됩니다. 적자(여유 예산 마이너스)로 주간 정산을 맞으면 구단주 신임도가 깎이며, 상위권을 지키려면 구단주 증액 요청이 필요할 수 있습니다.</div>
+            <div><strong>3-2. 전력 평준화 제도:</strong> 신인 드래프트·2차 드래프트·외국인 선수 영입은 순위 역순으로 진행됩니다. 경쟁균형세 상한은 리그 평균 상위 40인 연봉의 120%이며, 초과 시 1회 50% · 2회 연속 100% + 다음 1R 지명권 9단계 하락 · 3회 이상 150% + 9단계 하락입니다. 스토브리그 업무를 직접 처리하지 않으면 마감일(12/1 연봉·FA 공시, 1/15 FA 시장, 1/31 외국인)에 자동 처리됩니다.</div>
             <div><strong>4. 9월 3주차 신인 드래프트 &amp; 스카우트 파견:</strong> 고교 1~3학년 및 대학 리그에 스카우트를 파견해 유망주 오차(Fog of War)를 줄이고 9월 3주차에 드래프트를 진행합니다.</div>
             <div><strong>5. 외국인 선수 엄격 제한 &amp; 6주 대체 외인:</strong> 외국인은 육성군 등록이 절대 불가하며 방출 시 영구 퇴출됩니다. 6주 이상 장기 부상 시 6주 단기 대체 외국인을 영입할 수 있습니다.</div>
           </div>
@@ -4224,7 +4254,8 @@
           createTargetSlotId,
           gmName,
           createSelectedTrait,
-          createSelectedTeamId
+          createSelectedTeamId,
+          createSelectedDifficulty
         );
         await GM.Storage.saveGame("auto_save", newCtx);
         showToast(
@@ -4281,6 +4312,7 @@
             "gm-spring-camp.js",
             "gm-extensions.js",
             "gm-setup.js",
+            "gm-economy.js",
             "gm-ui.js"
           ];
           const codes = await Promise.all(
@@ -5302,7 +5334,7 @@
         const tierId = budReqBtn.dataset.execBudgetReq;
         const res = GM.Setup.requestBudgetIncrease(STATE.ctx, tierId);
         if (!res.ok) {
-          showToast(res.reason, "bad");
+          showToast(res.reason || "증액 요청을 진행할 수 없습니다.", "bad");
           return;
         }
         openBudgetRequestModal();
@@ -5468,6 +5500,16 @@
         return;
       }
 
+      // [새 단장 만들기 화면] 난이도 선택
+      const diffBtn = e.target.closest("[data-create-difficulty]");
+      if (diffBtn) {
+        createSelectedDifficulty = diffBtn.dataset.createDifficulty;
+        document
+          .querySelectorAll("[data-create-difficulty]")
+          .forEach((b) => b.classList.toggle("active", b === diffBtn));
+        return;
+      }
+
       // [새 단장 만들기 화면] 담당 구단 카드 선택
       const teamBox = e.target.closest("[data-select-create-team]");
       if (teamBox) {
@@ -5613,15 +5655,15 @@
         return;
       }
 
-      // [PART 4-5B] 10개 구단 경쟁균형세(샐러리캡 120억 상한) 심사
+      // [PART 4-5B] 10개 구단 경쟁균형세(리그 평균 상위 40인 연봉 × 120% 상한) 심사
       if (e.target.closest("[data-eval-luxury-tax]") && GM.Extensions) {
         const res = GM.Extensions.evaluateLuxuryTaxAndPenalties(STATE.ctx);
         if (res && res.ok) {
           const cnt = res.penalizedTeamIds.length;
           showToast(
             cnt > 0
-              ? `[경쟁균형세 심사 완료] 상한(120억) 초과 ${cnt}개 구단에 초과분 50% 벌금 및 1R 픽 강등 부과!`
-              : `[경쟁균형세 심사 완료] 10개 구단 모두 샐러리캡(120억 원) 상한선을 준수했습니다!`,
+              ? `[경쟁균형세 심사 완료] 상한(${fmtMoney(res.capLimitManwon)}) 초과 ${cnt}개 구단에 연속 초과 횟수별 제재금(50~150%)·1R 지명권 하락 부과!`
+              : `[경쟁균형세 심사 완료] 10개 구단 모두 상한(${fmtMoney(res.capLimitManwon)})을 준수했습니다!`,
             cnt > 0 ? "info" : "good"
           );
           renderAll();

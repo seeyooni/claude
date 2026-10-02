@@ -174,6 +174,7 @@
       gmName: gmProfile.name || "김단장",
       gmTrait: gmProfile.trait || "DATA_ANALYST",
       gmTraitLabel: gmProfile.traitLabel || "데이터 분석가",
+      difficultyLabel: ({ EASY: "쉬움", NORMAL: "보통", HARD: "어려움" })[context.difficulty] || "보통",
       userTeamId: context.userTeamId || userTeam.id || "KIA",
       userTeamName: userTeam.name || "KBO 구단",
       startYear: context.startYear || 2025,

@@ -1122,8 +1122,8 @@
 
     // 2) npbPool에서 대체 외국인 추출 및 6주(42일) 단기 계약 체결 (저렴한 단기 계약금: 연봉의 18%, 약 8,000만~1.8억)
     context.npbPool = context.npbPool.filter((p) => p.id !== candidate.id);
+    // 단기 계약금은 대체 선수의 연봉으로 등록되어 연봉총액(여유 예산)에 반영된다.
     const shortTermFee = clamp(round100((candidate.salary || 50000) * 0.18), 8000, 18000);
-    team.budget = clamp((team.budget || 1200000) - shortTermFee, 1000000, 2500000);
 
     candidate.teamId = team.id;
     candidate.salary = shortTermFee;
@@ -1180,8 +1180,8 @@
 
     if (decision === "CONVERT_REPLACEMENT" && tempPlayer) {
       // 대체 외국인을 정식 잔여시즌 계약으로 전환 (추가 계약금 지급) 및 원 외국인 퇴출(FOREIGN_RELEASED)
+      // 추가 계약금은 연봉 인상분으로 연봉총액(여유 예산)에 반영된다.
       const fullContractAddCost = round100((tempPlayer.salary || 12000) * 1.5);
-      team.budget = clamp((team.budget || 1200000) - fullContractAddCost, 1000000, 2500000);
       tempPlayer.isTempForeignReplacement = false;
       tempPlayer.replacesPlayerId = null;
       tempPlayer.tempContractDaysLeft = null;
@@ -1273,7 +1273,7 @@
     }
 
     const cash = Number(cashOfferManwon) || 0;
-    if (cash > 0 && userTeam.budget < cash) {
+    if (cash > 0 && userTeam.getAvailableBudget() < cash) {
       return { ok: false, reason: "구단 보유 예산이 부족하여 현금 트레이드를 진행할 수 없습니다." };
     }
 
@@ -1350,9 +1350,9 @@
    * - 구단주 신임도(ownerTrust), 팬심(fanRatio), 현재 순위, 단장 특성(NEGOTIATOR/FIELD_EXPERT)에 따라 승인 확률 산출
    * ═══════════════════════════════════════════════════════════════════════ */
   const BUDGET_REQUEST_TIERS = {
-    SMALL:    { id: "SMALL",    label: "소규모 지원 (10억 원)", amount: 100000, probAdj: +15, failTrustPenalty: 4,  succTrustCost: 2 },
-    STANDARD: { id: "STANDARD", label: "표준 증액 (25억 원)",   amount: 250000, probAdj: 0,   failTrustPenalty: 8,  succTrustCost: 4 },
-    LARGE:    { id: "LARGE",    label: "대규모 긴급수혈 (45억 원)", amount: 450000, probAdj: -18, failTrustPenalty: 14, succTrustCost: 6 }
+    SMALL:    { id: "SMALL",    label: "소규모 지원 (10억 원)", amount: 100000, probAdj: +15, failTrustPenalty: 4,  succTrustCost: 2, desc: "연봉 인상분·소규모 보강을 메우는 부담 없는 요청" },
+    STANDARD: { id: "STANDARD", label: "표준 증액 (25억 원)",   amount: 250000, probAdj: 0,   failTrustPenalty: 8,  succTrustCost: 4, desc: "FA 1명 영입 또는 핵심 선수 잔류에 필요한 규모" },
+    LARGE:    { id: "LARGE",    label: "대규모 긴급수혈 (45억 원)", amount: 450000, probAdj: -18, failTrustPenalty: 14, succTrustCost: 6, desc: "대형 FA·윈나우 승부수. 기각 시 신임도 타격이 큼" }
   };
 
   function previewBudgetRequestOdds(context, requestTier = "STANDARD") {
@@ -1362,13 +1362,23 @@
     const reqCount = Number(context.budgetRequestCountThisYear) || 0;
     const maxRequestsPerSeason = 2;
 
+    const uiTier = { ...spec, trustCostOnSuccess: spec.succTrustCost, trustPenaltyOnFail: spec.failTrustPenalty };
+    const goal = userTeam && userTeam.ownerExpectation;
+    const targetRank = (goal && goal.targetRank) || 5;
+    const rankRowForUi = (context.standings || []).find((s) => userTeam && s.teamId === userTeam.id);
+    const currentRank = rankRowForUi ? rankRowForUi.rank : "-";
+
     if (reqCount >= maxRequestsPerSeason) {
       return {
         canRequest: false,
         probability: 0,
-        tier: spec,
+        probPct: 0,
+        tier: uiTier,
         usedCount: reqCount,
         maxCount: maxRequestsPerSeason,
+        remainingRequests: 0,
+        currentRank,
+        targetRank,
         reason: `이번 시즌 예산 증액 요청 횟수(${maxRequestsPerSeason}회)를 모두 소진했습니다.`
       };
     }
@@ -1383,22 +1393,31 @@
     const traitBonus = trait === "NEGOTIATOR" ? 12 : trait === "FIELD_EXPERT" ? 6 : 3;
 
     // 기본 확률 35% + 신임도 보정 + 팬심 보정 + 순위 보정 + 단장 특성 + 요청 규모 보정 - 반복 요청 페널티
+    const diffAdj =
+      KBO_GM && KBO_GM.Economy && typeof KBO_GM.Economy.getDifficulty === "function"
+        ? KBO_GM.Economy.getDifficulty(context).ownerProbAdj
+        : 0;
     const rawProb =
       35 +
       (trust - 50) * 0.85 +
       (fan - 50) * 0.35 +
       (6 - rank) * 3.5 +
       traitBonus +
-      spec.probAdj -
+      spec.probAdj +
+      diffAdj -
       reqCount * 15;
 
     const probability = clamp(Math.round(rawProb), 10, 88);
     return {
       canRequest: true,
       probability,
-      tier: spec,
+      probPct: probability,
+      tier: uiTier,
       usedCount: reqCount,
       maxCount: maxRequestsPerSeason,
+      remainingRequests: maxRequestsPerSeason - reqCount,
+      currentRank,
+      targetRank,
       reason: `승인 확률 ${probability}% (신임도 ${trust} · 현재 ${rank}위 · 잔여 기회 ${maxRequestsPerSeason - reqCount}회)`
     };
   }
@@ -1417,7 +1436,7 @@
     const approved = roll < preview.probability;
 
     if (approved) {
-      userTeam.budget = clamp((userTeam.budget || 1200000) + spec.amount, 1000000, 2500000);
+      userTeam.budget = clamp((userTeam.budget || 1200000) + spec.amount, -3000000, 4000000);
       userTeam.ownerTrust = clamp((userTeam.ownerTrust ?? 60) - spec.succTrustCost, 0, 100);
       return {
         ok: true,
@@ -1508,7 +1527,7 @@
   /**
    * 국내 선수 및 2군/육성선수 상시 방출 정리 (선수단 정리 및 잔여 연봉 예산 절감 반영)
    * - 2군(2GUN) 및 육성선수(YUKSEONG)는 시즌·스토브리그 언제나 제한 없이 즉시 방출 가능하며,
-   *   방출 시 연봉의 80%(최소 1,500만 원)가 구단 운영 예산(team.budget)으로 즉시 절감·환수됩니다!
+   *   방출 시 해당 선수의 연봉이 연봉총액에서 빠져 여유 예산(예산 - 연봉총액)이 그만큼 늘어납니다 (별도 환급 없음).
    */
   function releaseDomesticPlayer(context, teamId, playerId) {
     if (!context) return { ok: false, reason: "컨텍스트가 없습니다." };
@@ -1522,10 +1541,10 @@
     if (target.nationality && target.nationality !== "KOR") {
       const fRes = releaseForeignPlayer(context, team.id, playerId);
       if (fRes && fRes.ok) {
-        const savedForeignBudget = Math.max(5000, round100((target.salary || 30000) * 0.5));
-        team.budget = clamp((team.budget || 1200000) + savedForeignBudget, 1000000, 2500000);
+        // 방출 선수의 연봉이 연봉총액에서 빠지는 만큼 여유 예산이 늘어난다 (별도 환급 없음)
+        const savedForeignBudget = target.salary || 0;
         fRes.savedBudgetManwon = savedForeignBudget;
-        fRes.summary = `${target.name} (${target.pos} · 외국인) 선수를 방출 정리하여 잔여 예산 ${(savedForeignBudget / 10000).toFixed(2)}억 원을 절감했습니다.`;
+        fRes.summary = `${target.name} (${target.pos} · 외국인) 선수를 방출 정리하여 연봉 ${(savedForeignBudget / 10000).toFixed(2)}억 원만큼 여유 예산이 늘었습니다.`;
       }
       return fRes;
     }
@@ -1542,13 +1561,9 @@
     team.roster2G = team.roster2G.filter((p) => p.id !== playerId);
     team.rosterDev = team.rosterDev.filter((p) => p.id !== playerId);
 
-    // 2군·육성선수 방출 시 잔여 연봉 절감분(80%, 최소 1,500만 원)을 구단 운영 예산에 즉시 환급
-    const playerSal = Number(target.salary) || 3000;
-    const savedBudgetManwon = is2GOrDev
-      ? Math.max(1500, round100(playerSal * 0.8))
-      : Math.max(1000, round100(playerSal * 0.5));
-
-    team.budget = clamp((team.budget || 1200000) + savedBudgetManwon, 1000000, 2500000);
+    // 방출 선수의 연봉이 연봉총액에서 빠지는 만큼 여유 예산이 늘어난다 (별도 환급 없음 · 방출-환급 반복으로 예산을 불리는 것을 막음)
+    const playerSal = Number(target.salary) || 0;
+    const savedBudgetManwon = playerSal;
 
     target.teamId = null;
     target.status = "RELEASED";
@@ -1565,7 +1580,7 @@
       savedBudgetManwon,
       budgetDelta: savedBudgetManwon,
       statusInfo,
-      summary: `[${tierLabel} 방출 · 예산 절감] ${target.name}(${target.pos} · ${target.age}세, 연봉 ${(playerSal / 10000).toFixed(2)}억) 선수를 방출하여 운영 예산 +${(savedBudgetManwon / 10000).toFixed(2)}억 원을 절감했습니다! (현재 총 로스터 ${statusInfo.totalRosterSize}명)`
+      summary: `[${tierLabel} 방출 · 예산 절감] ${target.name}(${target.pos} · ${target.age}세, 연봉 ${(playerSal / 10000).toFixed(2)}억) 선수를 방출하여 연봉총액에서 ${(savedBudgetManwon / 10000).toFixed(2)}억 원이 빠져 여유 예산이 늘었습니다! (현재 총 로스터 ${statusInfo.totalRosterSize}명)`
     };
   }
 
@@ -1911,7 +1926,7 @@
       // 남은 차액은 현금 트레이드 금액으로 정확히 보정
       if (check.diff < -1.5) {
         const addCashManwon = Math.ceil(((Math.abs(check.diff) / 1.5) * 10000) / 5000) * 5000;
-        const maxAffordable = Math.max(0, (userTeam.budget || 0) - 1000000);
+        const maxAffordable = Math.max(0, userTeam.getAvailableBudget());
         nextSpec.cashOfferManwon = clamp(nextSpec.cashOfferManwon + addCashManwon, -300000, maxAffordable);
       }
     } else if (check.diff > 8.0) {
@@ -1998,10 +2013,10 @@
     const targetTeam = context.getTeam(resolvedPartnerId);
     const cash = ev.cashOfferManwon;
 
-    if (cash > 0 && (userTeam.budget || 1200000) - cash < 1000000) {
-      return { ok: false, reason: "구단 최소 운영 예산(100억 원) 유지를 위해 현금 지급액을 낮춰 주세요." };
+    if (cash > 0 && userTeam.getAvailableBudget() - cash < 0) {
+      return { ok: false, reason: "여유 예산(예산 - 연봉총액)이 부족합니다. 현금 지급액을 낮춰 주세요." };
     }
-    if (cash < 0 && (targetTeam.budget || 1200000) - Math.abs(cash) < 1000000) {
+    if (cash < 0 && targetTeam.getAvailableBudget() - Math.abs(cash) < 0) {
       return { ok: false, reason: "상대 구단의 잔여 예산이 부족하여 해당 현금 요구액을 지불할 수 없습니다." };
     }
 
@@ -2075,8 +2090,8 @@
     });
 
     // 3) 현금 이체
-    userTeam.budget = clamp((userTeam.budget || 1200000) - cash, 1000000, 2500000);
-    targetTeam.budget = clamp((targetTeam.budget || 1200000) + cash, 1000000, 2500000);
+    userTeam.budget = clamp((userTeam.budget || 1200000) - cash, -3000000, 4000000);
+    targetTeam.budget = clamp((targetTeam.budget || 1200000) + cash, -3000000, 4000000);
 
     const mySideDesc = [
       ...ev.myPlayers.map((p) => `${p.name}(${p.pos})`),
@@ -2185,19 +2200,20 @@
       return { ok: false, reason: "아시아야구연맹(BFA) 및 호주 국적 선수만 아시아 쿼터로 영입할 수 있습니다." };
     }
 
-    // 기존 아시아 쿼터 선수가 있으면 자동 웨이버 방출(퇴출) 후 교체
+    // 연봉(contractCost)은 연봉총액에 포함되어 여유 예산을 차지한다. 교체 대상 아시아 쿼터의 연봉은 방출 시 빠지므로 함께 고려.
     const existingAQ = [...team.roster1G, ...team.roster2G].find((p) => p.isAsianQuarter);
+    const contractCost = clamp(round100((candidate.salary || 35000) * 0.55), 20000, 45000);
+    const freedSalary = existingAQ ? existingAQ.salary || 0 : 0;
+    if (team.getAvailableBudget() + freedSalary < contractCost) {
+      return { ok: false, reason: `여유 예산(${(team.getAvailableBudget() / 10000).toFixed(1)}억)이 아시아 쿼터 연봉(${(contractCost / 10000).toFixed(1)}억)보다 부족합니다.` };
+    }
+
+    // 기존 아시아 쿼터 선수가 있으면 자동 웨이버 방출(퇴출) 후 교체
     if (existingAQ) {
       releaseForeignPlayer(context, team.id, existingAQ.id);
     }
 
-    const contractCost = clamp(round100((candidate.salary || 35000) * 0.55), 20000, 45000);
-    if ((team.budget || 0) < contractCost) {
-      return { ok: false, reason: "구단 보유 예산이 부족합니다." };
-    }
-
     context.npbPool = context.npbPool.filter((p) => p.id !== candidate.id);
-    team.budget = clamp((team.budget || 1200000) - contractCost, 1000000, 2500000);
 
     candidate.teamId = team.id;
     candidate.salary = contractCost;
@@ -2523,7 +2539,44 @@
         }
       }
 
-      // 4-D) [PART 4] 매년 12월 10일: 상무 피닉스 정기 입대 및 경쟁균형세(샐러리캡 120억) 심사
+      // 4-C2) 스토브리그 마감일 자동 처리 (유저가 버튼으로 먼저 처리한 단계는 건너뜀)
+      //   - 12월 1일: 연봉 재계약(FA 연차 +1 포함) → FA 자격 선수 공시
+      //   - 1월 15일: FA 시장 마감 — 미계약 FA는 AI 구단 입찰로 정리 (유저 구단은 자기 FA 잔류 입찰만 자동 진행)
+      //   - 1월 31일: 외국인 선수 재계약/신규 계약 마감 (첫해처럼 연봉 재계약이 남아 있으면 함께 처리)
+      if (gm && gm.Offseason && typeof gm.Offseason.isStoveStepDone === "function") {
+        const off = gm.Offseason;
+        const stoveEvent = (type, message) => dailyEvents.push({ date: context.currentDate, type, message });
+        if (month === 12 && dayOfMonth === 1) {
+          if (!off.isStoveStepDone(context, "salary")) {
+            off.processSalaryRenewals(context, { userPolicy: "FAIR" });
+            stoveEvent("STOVE_SALARY_AUTO", "[12월 1일 연봉 재계약 마감] 미처리 연봉 계약을 '적정 협상' 기준으로 일괄 체결했습니다.");
+          }
+          if (!off.isStoveStepDone(context, "declared")) {
+            const declared = off.declareEligibleFAPlayers(context) || [];
+            stoveEvent("STOVE_FA_DECLARED", `[FA 공시] ${context.currentYear + 1}시즌 FA 자격 선수 ${declared.length || (context.faPool || []).length}명이 시장에 나왔습니다. 1월 15일까지 협상하세요.`);
+          }
+        }
+        if (month === 1 && dayOfMonth === 15) {
+          const openFAs = (context.faPool || []).filter((p) => !p.teamId || p.status === "FA");
+          if (openFAs.length > 0 && typeof off.runFAMarketSession === "function") {
+            const faRes = off.runFAMarketSession(context, {}, { autoDeclareFromRosters: false, allowAutoUserRetention: true });
+            const signedCount = faRes && Number.isFinite(faRes.totalSigned) ? faRes.totalSigned : null;
+            stoveEvent("STOVE_FA_MARKET_CLOSED", `[1월 15일 FA 시장 마감] 미계약 FA ${openFAs.length}명을 AI 구단 입찰로 정리했습니다${signedCount != null ? ` (계약 ${signedCount}건)` : ""}.`);
+          }
+        }
+        if (month === 1 && dayOfMonth === 31) {
+          if (!off.isStoveStepDone(context, "salary")) {
+            off.processSalaryRenewals(context, { userPolicy: "FAIR" });
+            stoveEvent("STOVE_SALARY_AUTO", "[1월 31일 연봉 재계약 마감] 미처리 연봉 계약을 '적정 협상' 기준으로 일괄 체결했습니다.");
+          }
+          if (!off.isStoveStepDone(context, "foreign") && typeof off.processForeignPlayerContracts === "function") {
+            off.processForeignPlayerContracts(context, null);
+            stoveEvent("STOVE_FOREIGN_AUTO", "[1월 31일 외국인 계약 마감] 10개 구단 외국인 선수 재계약·신규 계약을 마무리했습니다.");
+          }
+        }
+      }
+
+      // 4-D) [PART 4] 매년 12월 10일: 상무 피닉스 정기 입대 및 경쟁균형세(리그 평균 상위 40인 연봉 × 120% 상한) 심사
       if (month === 12 && dayOfMonth === 10 && gm && gm.Extensions) {
         if (typeof gm.Extensions.autoManageDecemberSangmuEnlistment === "function") {
           const enl = gm.Extensions.autoManageDecemberSangmuEnlistment(context);
@@ -2543,7 +2596,7 @@
               date: context.currentDate,
               type: "LUXURY_TAX_AUDIT",
               report: taxRes,
-              message: `[경쟁균형세 심사 완료] 상위 40인 상한(120억) 초과 구단: ${taxRes.penalizedTeamIds.length}개 구단`
+              message: `[경쟁균형세 심사 완료] 상위 40인 상한(${(taxRes.capLimitManwon / 10000).toFixed(1)}억) 초과 구단: ${taxRes.penalizedTeamIds.length}개 구단`
             });
           }
         }
@@ -3052,6 +3105,11 @@
       }
     ];
 
+    // 난이도(쉬움/보통/어려움) 적용: 유저 구단 초기 예산 보정 및 재정 장부 초기화 (KBO_GM.Economy)
+    if (gm.Economy && typeof gm.Economy.initDifficulty === "function") {
+      gm.Economy.initDifficulty(context, opts.difficulty || "NORMAL");
+    }
+
     // 유망주 초기 스카우팅 정밀도 계산
     applyDailyScoutProgress(context, 2);
 
@@ -3067,14 +3125,15 @@
     return context;
   }
 
-  async function initNewGameSession(optionsOrSlotId = {}, gmNameArg, gmTraitArg, userTeamIdArg) {
+  async function initNewGameSession(optionsOrSlotId = {}, gmNameArg, gmTraitArg, userTeamIdArg, difficultyArg) {
     let opts = {};
     if (typeof optionsOrSlotId === "string") {
       opts = {
         slotId: optionsOrSlotId,
         gmName: gmNameArg,
         gmTrait: gmTraitArg,
-        userTeamId: userTeamIdArg
+        userTeamId: userTeamIdArg,
+        difficulty: difficultyArg
       };
     } else if (optionsOrSlotId && typeof optionsOrSlotId === "object") {
       opts = { ...optionsOrSlotId };
@@ -3176,6 +3235,7 @@
         gmName: saved.gmName || "김단장",
         gmTrait: saved.gmTrait || traitSpec.id,
         gmTraitLabel: saved.gmTraitLabel || traitSpec.label,
+        difficultyLabel: saved.difficultyLabel || "보통",
         userTeamId: saved.userTeamId || "KIA",
         userTeamName: saved.userTeamName || "광주 고양이즈",
         currentYear: saved.currentYear || 2025,
@@ -3712,7 +3772,7 @@
           if (!isValidNum(tm.budget) || !isValidNum(tm.ownerTrust) || !isValidNum(tm.fanRatio)) {
             auditFlags.nanOrNullErrorCount += 1;
           }
-          if (tm.budget < 1000000 || tm.budget > 2500000) {
+          if (tm.budget < -3000000 || tm.budget > 4000000) {
             auditFlags.budgetOutOfBoundsCount += 1;
             errors.push(`[Day ${dayCount} 예산 범위 이탈] ${tm.id}: ${tm.budget}만원`);
           }

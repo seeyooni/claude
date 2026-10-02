@@ -188,7 +188,7 @@
       }
 
       const camp = CAMP_LOCATIONS[locKey];
-      team.budget = clamp((team.budget || 1200000) - camp.cost, 1000000, 2500000);
+      team.budget = clamp((team.budget || 1200000) - camp.cost, -3000000, 4000000);
 
       const staff = team.coachingStaff || {};
       const mgrStyleKey = (staff.manager && staff.manager.style) || "균형";
@@ -456,7 +456,7 @@
         ((nextPitCoach && nextPitCoach.salary) || 2200) +
         ((nextHitCoach && nextHitCoach.salary) || 2200);
 
-      team.budget = clamp((team.budget || 1200000) - totalStaffSalary, 1000000, 2500000);
+      // 코칭스태프 연봉은 연봉총액(getTotalPayroll)에 포함되어 여유 예산에 반영된다.
 
       teamStaffReports[team.id] = {
         teamId: team.id,
@@ -548,14 +548,16 @@
         }
       }
 
-      // 2) 차년도 총예산(budget) 책정
-      // 기본 모기업 지원금 + 직전 시즌 관중/성적 인센티브 + 이월 잔여금(최대 25% 반영)
-      const fanBonus = Math.round(((team.fanRatio || 55) - 50) * 2200);
-      const rankBonus = Math.round((6 - prevRank) * 25000);
-      const carryover = clamp(Math.round(Math.max(0, team.budget - team.getTotalPayroll()) * 0.20), 0, 250000);
-      const nextBudget = round100(
-        clamp((meta.baseBudget || 1450000) + fanBonus + rankBonus + carryover, 1050000, 2200000)
-      );
+      // 2) 차년도 총예산(budget) 책정 (KBO_GM.Economy)
+      // 모기업 지원금(직전 정규시즌 순위 역순: 1위 100억 ~ 10위 145억, 난이도 보정) + 이월금(흑자 상한 / 적자 -30억 하한)
+      const economy = KBO_GM && KBO_GM.Economy;
+      let nextBudget;
+      if (economy && typeof economy.computeNewSeasonBudget === "function") {
+        nextBudget = economy.computeNewSeasonBudget(context, team, prevRank).budget;
+      } else {
+        const carryover = clamp(Math.round(Math.max(0, team.budget - team.getTotalPayroll()) * 0.20), 0, 250000);
+        nextBudget = round100(clamp((meta.baseBudget || 1450000) + carryover, 1050000, 2200000));
+      }
 
       team.budget = nextBudget;
 

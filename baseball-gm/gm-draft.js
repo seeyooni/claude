@@ -87,17 +87,14 @@
 
     const orderIds = teamsWithStats.map((x) => x.teamId);
 
-    // [PART 4-5] 경쟁균형세(샐러리캡 120억) 상한 초과 구단 1라운드 지명 순위 강등 페널티 반영
-    if (
-      context.luxuryTaxPenalties &&
-      Array.isArray(context.luxuryTaxPenalties.penalizedTeamIds) &&
-      context.luxuryTaxPenalties.penalizedTeamIds.length > 0
-    ) {
-      context.luxuryTaxPenalties.penalizedTeamIds.forEach((penTeamId) => {
+    // [PART 4-5] 경쟁균형세 2회 이상 연속 초과 구단: 1라운드 지명 순위 9단계 하락 (options.round === 1 일 때만)
+    const pickDrops = (context.luxuryTaxPenalties && context.luxuryTaxPenalties.pickDropByTeam) || {};
+    if (options.round === 1 && Object.keys(pickDrops).length > 0) {
+      Object.keys(pickDrops).forEach((penTeamId) => {
         const curIdx = orderIds.indexOf(penTeamId);
         if (curIdx !== -1 && curIdx < orderIds.length - 1) {
           orderIds.splice(curIdx, 1);
-          const targetIdx = Math.min(orderIds.length, curIdx + 2);
+          const targetIdx = Math.min(orderIds.length, curIdx + (Number(pickDrops[penTeamId]) || 0));
           orderIds.splice(targetIdx, 0, penTeamId);
         }
       });
@@ -335,7 +332,7 @@
 
     // 2. 계약금 산출 및 구단 예산 차감 (구단 최소 운영예산 100억~250억 밸런스 유지)
     const signingBonus = calculateSigningBonus(roundNumber, pickInRound, prospect);
-    team.budget = clamp((team.budget || 1200000) - signingBonus, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) - signingBonus, -3000000, 4000000);
 
     // 3. 선수 소속/계약 정보 갱신
     prospect.teamId = team.id;
@@ -416,9 +413,11 @@
    */
   function initDraftSession(context, options = {}) {
     const draftOrder = options.draftOrder || getDraftOrder(context, options);
+    const round1Order = options.draftOrder || getDraftOrder(context, { ...options, round: 1 });
     context.draftState = {
       year: context.currentYear || 2026,
       draftOrder,
+      round1Order,
       completedRounds: [],
       allPicks: [],
       isCompleted: false
@@ -448,7 +447,11 @@
       initDraftSession(context, options);
     }
 
-    const draftOrder = context.draftState.draftOrder;
+    // 1라운드만 경쟁균형세 지명권 하락이 반영된 순서를 사용
+    const draftOrder =
+      round === 1 && Array.isArray(context.draftState.round1Order)
+        ? context.draftState.round1Order
+        : context.draftState.draftOrder;
     const roundPicks = [];
 
     for (let i = 0; i < draftOrder.length; i++) {

@@ -5,7 +5,7 @@
  *   2. KBO 2차 드래프트 (격년 11월 개최 · 35인 보호선수 명단 · 1~3R 양도금 4억/3억/2억 이적) (BIENNIAL_DRAFT)
  *   3. 상무 피닉스 야구단 병역 보류 시스템 (19~26세 12월 입대 · 18개월 복무 성장 · 정원/페이롤 제외 · 27세 미필 리스크) (MILITARY_SERVICE)
  *   4. 구단 인프라 & R&D 3대 시설 투자 (재활센터 · 2군 바이오메카닉스 랩 · 데이터/스카우트 본부 Lv.1~5) (FACILITY_INVEST)
- *   5. 샐러리캡(경쟁균형세 120억 상한 · 초과분 50% 벌금 & 1R 픽 순위 강등) 및 비FA 다년 연장 계약 (SALARY_CAP_EXT)
+ *   5. 샐러리캡(경쟁균형세: 리그 평균 상위 40인 연봉 × 120% 상한 · 연속 초과 시 50/100/150% 제재금 & 1R 9단계 하락) 및 비FA 다년 연장 계약 (SALARY_CAP_EXT)
  */
 
 (function (root, factory) {
@@ -319,7 +319,7 @@
     const payouts = [];
     rewardAssignments.forEach(({ team, reward, finalStage }) => {
       if (!team) return;
-      team.budget = clamp((team.budget || 1200000) + reward.dividend, 1000000, 2500000);
+      team.budget = clamp((team.budget || 1200000) + reward.dividend, -3000000, 4000000);
       team.ownerTrust = clamp((team.ownerTrust || 60) + reward.trustBonus, 0, 100);
       team.fanRatio = clamp((team.fanRatio || 55) + reward.fanBonus, 0, 100);
       payouts.push({
@@ -334,6 +334,12 @@
         newOwnerTrust: team.ownerTrust
       });
     });
+
+    // 배당금 반영 후 시즌 장부 마감: 이 시점의 여유 예산이 차기 시즌 이월금 기준 (KBO_GM.Economy)
+    const economyMod = getGM() && getGM().Economy;
+    if (economyMod && typeof economyMod.closeSeasonBooks === "function") {
+      economyMod.closeSeasonBooks(context);
+    }
 
     // 한국시리즈 MVP 선정 (우승팀 내 최고 WAR/OVR 핵심 선수)
     const ksMvpPlayer = ksChampion.roster1G
@@ -576,8 +582,8 @@
         const pickingTeam = context.getTeam(pickOrderTeamIds[i]);
         if (!pickingTeam) continue;
 
-        // 양도금 지급 후 최소 예산(100억) 이상 유지 가능 여부 및 2군 정원 여유 확인
-        if ((pickingTeam.budget || 1200000) - fee < 1000000) {
+        // 양도금을 여유 예산(예산 - 연봉총액) 안에서 지급 가능한지 확인
+        if (pickingTeam.getAvailableBudget() - fee < 0) {
           continue;
         }
 
@@ -628,8 +634,8 @@
         });
 
         // 양도금 이체 (100억~250억 예산 밸런스 유지)
-        pickingTeam.budget = clamp((pickingTeam.budget || 1200000) - fee, 1000000, 2500000);
-        formerTeam.budget = clamp((formerTeam.budget || 1200000) + fee, 1000000, 2500000);
+        pickingTeam.budget = clamp((pickingTeam.budget || 1200000) - fee, -3000000, 4000000);
+        formerTeam.budget = clamp((formerTeam.budget || 1200000) + fee, -3000000, 4000000);
         teamLostCount[formerTeam.id] = (teamLostCount[formerTeam.id] || 0) + 1;
 
         // 지명 구단 1군 또는 2군 등록 (정원 준수)
@@ -1059,15 +1065,15 @@
     const nextLv = curLv + 1;
     const cost = spec.costsByNextLevel[nextLv] || 150000;
 
-    // 최소 운영 예산 하한선(100억 원 = 1,000,000만 원)을 침범하지 않는 범위에서 투자 가능
-    if ((team.budget || 1200000) - cost < 1000000) {
+    // 여유 예산(예산 - 연봉총액) 안에서만 투자 가능
+    if (team.getAvailableBudget() - cost < 0) {
       return {
         ok: false,
-        reason: `구단 최소 운영 자금(100억 원) 유지를 위해 현재 예산(${(team.budget / 10000).toFixed(1)}억)에서는 투자 비용(${(cost / 10000).toFixed(1)}억)을 집행할 수 없습니다.`
+        reason: `여유 예산(${(team.getAvailableBudget() / 10000).toFixed(1)}억)이 투자 비용(${(cost / 10000).toFixed(1)}억)보다 부족합니다. 구단주 증액 요청을 검토하세요.`
       };
     }
 
-    team.budget = clamp((team.budget || 1200000) - cost, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) - cost, -3000000, 4000000);
     fac[facilityKey] = nextLv;
 
     // 스카우트 본부 업그레이드 시 context.scoutLevel 및 파견 가능 인원 즉시 연동
@@ -1101,7 +1107,15 @@
    *    - 경쟁균형세(Luxury Tax): 상위 40인 국내 선수 연봉 총액이 120억 원(1,200,000만 원) 초과 시
    *      초과분의 50% 야구발전기금 벌금 부과 + 차년도 신인 드래프트 1라운드 지명 순위 강등 페널티
    * ═══════════════════════════════════════════════════════════════════════ */
-  const KBO_SALARY_CAP_LIMIT = 1200000; // 120억 원 (1,200,000만 원)
+  const KBO_SALARY_CAP_LIMIT = 1200000; // 리그 평균 산출이 불가할 때 쓰는 기본 상한 (120억 원)
+  // KBO 경쟁균형세 상한 = 10개 구단 상위 40인 국내 연봉 평균의 120% (실제 KBO 산정 방식)
+  const SALARY_CAP_RATIO = 1.2;
+  // 연속 초과 횟수별 제재: 1회 50% / 2회 연속 100% + 1R 9단계 하락 / 3회 이상 연속 150% + 1R 9단계 하락
+  const LUXURY_TAX_TIERS = [
+    { streak: 1, rate: 0.5, pickDrop: 0, label: "1회 초과: 초과분 50% 제재금" },
+    { streak: 2, rate: 1.0, pickDrop: 9, label: "2회 연속: 초과분 100% + 다음 1R 지명권 9단계 하락" },
+    { streak: 3, rate: 1.5, pickDrop: 9, label: "3회 이상 연속: 초과분 150% + 다음 1R 지명권 9단계 하락" }
+  ];
 
   /**
    * 구단 내 비FA 다년 연장 계약 대상자(FA 취득 1~2년 전, faYears 6~7년차 국내 핵심 선수) 조회
@@ -1191,15 +1205,16 @@
       };
     }
 
-    if ((team.budget || 1200000) - signingBonus < 1000000) {
+    const extraAnnual = Math.max(0, annualSalary - (player.salary || 0));
+    if (team.getAvailableBudget() - signingBonus - extraAnnual < 0) {
       return {
         ok: false,
         accepted: false,
-        reason: "구단 최소 운영 예산(100억 원) 유지를 위해 계약금을 지급할 잔여 예산이 부족합니다."
+        reason: `여유 예산(${(team.getAvailableBudget() / 10000).toFixed(1)}억)으로는 계약금(${(signingBonus / 10000).toFixed(1)}억)과 연봉 인상분(${(extraAnnual / 10000).toFixed(1)}억)을 감당할 수 없습니다.`
       };
     }
 
-    team.budget = clamp((team.budget || 1200000) - signingBonus, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) - signingBonus, -3000000, 4000000);
     player.salary = annualSalary;
     player.contractYears = years;
     player.faYears = 0; // 다년 연장 계약 기간 동안 FA 시장 유출 완전 차단
@@ -1251,28 +1266,57 @@
   }
 
   /**
-   * 10개 구단 경쟁균형세(Luxury Tax · 120억 상한) 심사 및 초과 구단 벌금(50%)·1R 픽 순위 하강 페널티 부과
+   * 경쟁균형세 상한액: 10개 구단 상위 40인 국내 연봉 평균 × 120%
+   */
+  function getSalaryCapLimit(context) {
+    const teams = (context && context.kboTeams) || [];
+    if (!teams.length) return KBO_SALARY_CAP_LIMIT;
+    const avgTop40 = teams.reduce((s, t) => s + getTop40DomesticPayroll(t), 0) / teams.length;
+    return avgTop40 > 0 ? round100(avgTop40 * SALARY_CAP_RATIO) : KBO_SALARY_CAP_LIMIT;
+  }
+
+  /** 직전 연도부터 거슬러 올라가며 연속 상한 초과 횟수 계산 (이번 심사 포함 전) */
+  function countPriorOverCapStreak(team, year) {
+    const hist = Array.isArray(team.luxuryTaxHistory) ? team.luxuryTaxHistory : [];
+    let streak = 0;
+    for (let y = year - 1; ; y--) {
+      const h = hist.find((x) => x.year === y);
+      if (!h || !h.isOverCap) break;
+      streak += 1;
+    }
+    return streak;
+  }
+
+  /**
+   * 10개 구단 경쟁균형세(Luxury Tax) 심사: 상한(리그 평균 상위 40인 연봉 × 120%) 초과 시
+   * 연속 초과 횟수에 따라 제재금(50% / 100% / 150%) 및 다음 신인 드래프트 1R 지명권 9단계 하락
    */
   function evaluateLuxuryTaxAndPenalties(context, options = {}) {
     if (!context || !Array.isArray(context.kboTeams)) return { ok: false, reports: [] };
     const audit = ensureAuditMetrics(context);
     const year = context.currentYear || 2025;
-    const capLimit = options.capLimit || KBO_SALARY_CAP_LIMIT;
+    const capLimit = options.capLimit || getSalaryCapLimit(context);
     const reports = [];
     const penalizedTeamIds = [];
+    const pickDropByTeam = {};
 
     context.kboTeams.forEach((team) => {
       const top40Payroll = getTop40DomesticPayroll(team);
       const overage = Math.max(0, top40Payroll - capLimit);
       let luxuryTaxFine = 0;
       let draftPickDrop = 0;
+      let overCapStreak = 0;
+      let penaltyLabel = null;
 
       if (overage > 0) {
-        // 초과분의 50% 야구발전기금 납부 및 차년도 1라운드 지명권 순위 2계단 강등 페널티
-        luxuryTaxFine = round100(overage * 0.50);
-        draftPickDrop = 2;
-        team.budget = clamp((team.budget || 1200000) - luxuryTaxFine, 1000000, 2500000);
+        overCapStreak = countPriorOverCapStreak(team, year) + 1;
+        const tier = LUXURY_TAX_TIERS[Math.min(overCapStreak, LUXURY_TAX_TIERS.length) - 1];
+        luxuryTaxFine = round100(overage * tier.rate);
+        draftPickDrop = tier.pickDrop;
+        penaltyLabel = tier.label;
+        team.budget = clamp((team.budget || 1200000) - luxuryTaxFine, -3000000, 4000000);
         penalizedTeamIds.push(team.id);
+        if (draftPickDrop > 0) pickDropByTeam[team.id] = draftPickDrop;
       }
 
       const item = {
@@ -1288,6 +1332,8 @@
         luxuryTaxFineManwon: luxuryTaxFine,
         luxuryTaxFineEok: +(luxuryTaxFine / 10000).toFixed(1),
         draftPickDrop,
+        overCapStreak,
+        penaltyLabel,
         remainingBudget: team.budget
       };
       reports.push(item);
@@ -1301,8 +1347,12 @@
       year,
       capLimitManwon: capLimit,
       penalizedTeamIds,
+      pickDropByTeam,
       reports
     };
+    if (audit && Object.keys(pickDropByTeam).length > 0) {
+      audit.luxuryTaxPickDropCount = (audit.luxuryTaxPickDropCount || 0) + Object.keys(pickDropByTeam).length;
+    }
 
     if (audit) {
       audit.luxuryTaxEvaluatedCount = (audit.luxuryTaxEvaluatedCount || 0) + 1;
@@ -1419,7 +1469,7 @@
 
     // 구단 예산에 포스팅 이적료(+100억~300억 원) 유입 (밸런스 범위 100억~250억 준수)
     const feeManwon = candMeta.postingFeeManwon;
-    team.budget = clamp((team.budget || 1200000) + feeManwon, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) + feeManwon, -3000000, 4000000);
     team.ownerTrust = clamp((team.ownerTrust || 60) + 12, 0, 100);
     team.fanRatio = clamp((team.fanRatio || 55) + 8, 0, 100);
 
@@ -1508,14 +1558,14 @@
       newHit = +clamp(Number(presetKeyOrCustom.hit) || 1.0, 0.90, 1.12).toFixed(2);
     }
 
-    if ((team.budget || 1200000) - cost < 1000000) {
+    if (team.getAvailableBudget() - cost < 0) {
       return {
         ok: false,
-        reason: `구단 최소 운영 예산(100억 원) 유지를 위해 현재 예산(${(team.budget / 10000).toFixed(1)}억)에서는 구장 개조 비용(${(cost / 10000).toFixed(1)}억)을 집행할 수 없습니다.`
+        reason: `여유 예산(${(team.getAvailableBudget() / 10000).toFixed(1)}억)이 구장 개조 비용(${(cost / 10000).toFixed(1)}억)보다 부족합니다.`
       };
     }
 
-    team.budget = clamp((team.budget || 1200000) - cost, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) - cost, -3000000, 4000000);
     team.park = {
       ...(team.park || { name: `${team.city} 구장`, dome: false }),
       hr: newHr,
@@ -1735,7 +1785,7 @@
 
     // 기본: 단장 1:1 면담 및 특별 격려금(2,000만 원) 지급
     const bonusCost = 2000;
-    team.budget = clamp((team.budget || 1200000) - bonusCost, 1000000, 2500000);
+    team.budget = clamp((team.budget || 1200000) - bonusCost, -3000000, 4000000);
     player.morale = clamp(player.morale + 26, 0, 100);
     player.tradeDemand = false;
     player.moraleReason = "단장 1:1 면담 및 특별 인센티브 지급으로 갈등 봉합";
@@ -2755,7 +2805,7 @@
     }
 
     const severancePayManwon = st.remainingContractYears * st.annualSalaryManwon;
-    if ((team.budget || 1200000) - severancePayManwon < 900000) {
+    if (team.getAvailableBudget() - severancePayManwon < -300000) {
       return {
         ok: false,
         reason: `감독 잔여 계약 위약금(${(severancePayManwon / 10000).toFixed(1)}억 원) 지급 시 구단 운영 최저 예산이 부족합니다.`
@@ -3486,11 +3536,11 @@
     const bumpedSalary = round100(prevSalary * mult);
     const extraCost = bumpedSalary - prevSalary;
 
-    if ((team.budget || 1200000) - extraCost < 950000) {
-      return { ok: false, reason: "구단 운영 예산이 부족하여 전략적 고액 연봉 인상을 집행할 수 없습니다." };
+    if (team.getAvailableBudget() - extraCost < 0) {
+      return { ok: false, reason: "여유 예산이 부족하여 전략적 고액 연봉 인상을 집행할 수 없습니다." };
     }
 
-    team.budget = Math.max(950000, (team.budget || 1200000) - extraCost);
+    team.budget = (team.budget || 1200000) - extraCost;
     player.salary = bumpedSalary;
     player.faYears = 7;
     player.preemptiveBumpApplied = true;
@@ -3918,7 +3968,7 @@
       summary = `[미디어 인터뷰: 강경 원칙론 천명] "성적과 데이터 고과에 타협은 없다"고 발표했습니다. 예산 절감을 반긴 구단주 신임도는 +10(→${team.ownerTrust}) 상승했으나, 언론 여론 -18(→${rgm.mediaSentiment}), 팬 민심 -10(→${team.fanRatio}), 선수단 사기 -12(→${newMorale})로 냉각되었습니다.`;
     } else if (responseStrategy === "CONCILIATORY_BONUS") {
       // 2) 유화책 & 승리수당 인센티브 신설 ("선수단 자존심 존중 및 1.5억 포스트시즌 보너스 풀 약정"): 예산 -1.5억, 구단주 신임도 -4, 언론 여론 +22, 팬 민심 +14, 팀 컨디션/사기 완전 회복
-      team.budget = Math.max(950000, (team.budget || 1200000) - 15000);
+      team.budget = (team.budget || 1200000) - 15000;
       team.ownerTrust = clamp((team.ownerTrust || 60) - 4, 0, 100);
       rgm.mediaSentiment = clamp((rgm.mediaSentiment || 50) + 22, 0, 100);
       team.fanRatio = clamp((team.fanRatio || 50) + 14, 0, 100);
@@ -4209,12 +4259,12 @@
     // (R-4) 여유 예산 기반 2군 R&D 인프라(바이오메카닉스/재활센터/스카우트본부) 투자
     const fac = ensureTeamFacilities(userTeam);
     const hasUpgradeableFac = fac.rehabCenter < 5 || fac.biomechLab < 5 || fac.scoutHq < 5;
-    if (hasUpgradeableFac && (userTeam.budget || 1200000) >= 1180000) {
+    if (hasUpgradeableFac && userTeam.getAvailableBudget() >= 150000) {
       recommended.push({
         id: "FACILITY_INVEST_REC",
         priority: "RECOMMENDED",
         badge: "🟡 추천",
-        title: `여유 예산(${(userTeam.budget / 10000).toFixed(1)}억) 기반 구단 R&D 인프라 증축 추천`,
+        title: `여유 예산(${(userTeam.getAvailableBudget() / 10000).toFixed(1)}억) 기반 구단 R&D 인프라 증축 추천`,
         desc: `재활센터(Lv.${fac.rehabCenter}) · 바이오메카닉스 랩(Lv.${fac.biomechLab}) · 스카우트 본부(Lv.${fac.scoutHq}) 투자가 가능합니다.`,
         targetTab: "offseason",
         targetSubTab: "front5",
@@ -4575,6 +4625,109 @@
       `assert(mustDoBlockingVerified === true) 실패: 필수 할 일 미처리 시 진행 블로킹이 작동하지 않았습니다.`
     );
 
+    // ── [재정·전력 평준화 어설션 6~11] KBO_GM.Economy / 경쟁균형세 / 스토브리그 마감 자동 처리 ──
+    const economy = gm.Economy;
+    const economyWeeklySettledCount = audit.economyWeeklySettledCount || 0;
+    assert(
+      economyWeeklySettledCount > 0,
+      `assert(economyWeeklySettledCount > 0) 실패: 주간 재정 정산(수입 - 운영비)이 한 번도 실행되지 않았습니다.`
+    );
+
+    // (7) 모기업 지원금은 직전 순위 역순으로 엄격히 증가해야 한다 (1위 < 2위 < ... < 10위)
+    const probeAiTeam = context.kboTeams.find((t) => t.id !== context.userTeamId) || context.kboTeams[0];
+    const subsidyByRank = economy
+      ? Array.from({ length: 10 }, (_, i) => economy.computeSeasonSubsidy(context, probeAiTeam, i + 1))
+      : [];
+    const subsidyReverseOrderVerified =
+      subsidyByRank.length === 10 && subsidyByRank.every((v, i) => i === 0 || v > subsidyByRank[i - 1]);
+    assert(
+      subsidyReverseOrderVerified,
+      `assert(subsidyReverseOrderVerified) 실패: 모기업 지원금이 순위 역순으로 증가하지 않습니다 (${subsidyByRank.join(", ")}).`
+    );
+
+    // (8) 10개 구단 예산이 유효한 수치이며 재정 안전 범위 안에 있어야 한다
+    const budgetMin = economy ? economy.BUDGET_MIN : -3000000;
+    const budgetMax = economy ? economy.BUDGET_MAX : 4000000;
+    const budgetIntegrityVerified = context.kboTeams.every(
+      (t) => Number.isFinite(t.budget) && t.budget >= budgetMin && t.budget <= budgetMax
+    );
+    assert(budgetIntegrityVerified, `assert(budgetIntegrityVerified) 실패: 예산이 NaN이거나 재정 안전 범위를 벗어난 구단이 있습니다.`);
+
+    // (9) 경쟁균형세 2회 연속 초과 → 초과분 100% 제재금 + 다음 1R 지명권 9단계 하락
+    const taxProbeYear = context.currentYear;
+    const taxProbeTeam = context.kboTeams[0];
+    taxProbeTeam.luxuryTaxHistory = [{ year: taxProbeYear - 1, teamId: taxProbeTeam.id, isOverCap: true }];
+    taxProbeTeam
+      .getAllPlayers()
+      .filter((p) => !p.nationality || p.nationality === "KOR")
+      .slice(0, 5)
+      .forEach((p) => {
+        p.salary = 500000;
+      });
+    // 감사 루프의 연봉 보정으로 리그 평균이 부풀어 있으므로, 프로브 구단 기준 10억 초과가 되도록 상한을 명시한다
+    const taxProbeCap = getTop40DomesticPayroll(taxProbeTeam) - 100000;
+    const taxProbe = evaluateLuxuryTaxAndPenalties(context, { capLimit: taxProbeCap });
+    const taxProbeReport = (taxProbe.reports || []).find((r) => r.teamId === taxProbeTeam.id) || {};
+    const luxuryTaxEscalationVerified =
+      taxProbeReport.isOverCap === true &&
+      taxProbeReport.overCapStreak === 2 &&
+      taxProbeReport.draftPickDrop === 9 &&
+      taxProbeReport.luxuryTaxFineManwon === Math.round(taxProbeReport.overageManwon / 100) * 100;
+    assert(
+      luxuryTaxEscalationVerified,
+      `assert(luxuryTaxEscalationVerified) 실패: 2회 연속 초과 구단 제재(100% · 1R 9단계 하락)가 적용되지 않았습니다. (${JSON.stringify({ streak: taxProbeReport.overCapStreak, drop: taxProbeReport.draftPickDrop, fine: taxProbeReport.luxuryTaxFineManwon, overage: taxProbeReport.overageManwon, over: taxProbeReport.isOverCap })})`
+    );
+    let round1PickDropVerified = true;
+    if (gm.Draft && typeof gm.Draft.getDraftOrder === "function") {
+      // 프로브 구단 단독 제재로 격리해 1라운드 순서 이동만 검증 (2라운드 이후는 원래 순서 유지)
+      const savedPenalties = context.luxuryTaxPenalties;
+      context.luxuryTaxPenalties = { ...savedPenalties, pickDropByTeam: { [taxProbeTeam.id]: 9 } };
+      const baseOrder = gm.Draft.getDraftOrder(context);
+      const r1Order = gm.Draft.getDraftOrder(context, { round: 1 });
+      context.luxuryTaxPenalties = savedPenalties;
+      const baseIdx = baseOrder.indexOf(taxProbeTeam.id);
+      const r1Idx = r1Order.indexOf(taxProbeTeam.id);
+      round1PickDropVerified = r1Idx === Math.min(baseOrder.length - 1, baseIdx + 9);
+    }
+    assert(round1PickDropVerified, `assert(round1PickDropVerified) 실패: 1라운드 지명 순서에 9단계 하락이 반영되지 않았습니다.`);
+
+    // (10) 방출 시 현금 환급 없음: 예산은 그대로, 연봉총액만 감소 (방출-환급 반복 예산 증식 차단)
+    let releaseNoCashRefundVerified = true;
+    if (gm.Setup && typeof gm.Setup.releaseDomesticPlayer === "function") {
+      const relTeam = context.getUserTeam();
+      const relTarget = [...relTeam.roster2G, ...relTeam.rosterDev].find((p) => !p.nationality || p.nationality === "KOR");
+      if (relTarget) {
+        const budgetBefore = relTeam.budget;
+        const payrollBefore = relTeam.getTotalPayroll();
+        const relRes = gm.Setup.releaseDomesticPlayer(context, relTeam.id, relTarget.id);
+        releaseNoCashRefundVerified =
+          Boolean(relRes && relRes.ok) &&
+          relTeam.budget === budgetBefore &&
+          relTeam.getTotalPayroll() === payrollBefore - (relTarget.salary || 0);
+      }
+    }
+    assert(releaseNoCashRefundVerified, `assert(releaseNoCashRefundVerified) 실패: 선수 방출 시 예산에 현금이 환급되었습니다.`);
+
+    // (11) 스토브리그 마감일 자동 처리 (일간 진행 엔진): 12/1 연봉 재계약·FA 공시 → 1/15 FA 시장 마감 → 1/31 외국인 계약
+    let stoveAutomationVerified = true;
+    if (gm.Setup && typeof gm.Setup.advanceDays === "function" && gm.Offseason && gm.Offseason.isStoveStepDone) {
+      const stoveCtx = gm.Setup.createGameContextSync({ userTeamId: "KIA", autoSave: false });
+      stoveCtx.currentDate = "2025-11-25";
+      stoveCtx.currentYear = 2025;
+      for (let i = 0; i < 12; i++) gm.Setup.advanceDays(stoveCtx, 7);
+      const stoveKey = 2026;
+      const openFAsLeft = (stoveCtx.faPool || []).filter((p) => !p.teamId || p.status === "FA").length;
+      stoveAutomationVerified =
+        gm.Offseason.isStoveStepDone(stoveCtx, "salary", stoveKey) &&
+        gm.Offseason.isStoveStepDone(stoveCtx, "declared", stoveKey) &&
+        gm.Offseason.isStoveStepDone(stoveCtx, "foreign", stoveKey) &&
+        openFAsLeft === 0;
+    }
+    assert(
+      stoveAutomationVerified,
+      `assert(stoveAutomationVerified) 실패: 스토브리그 마감일(연봉·FA 공시·FA 시장·외국인) 자동 처리가 완료되지 않았습니다.`
+    );
+
     const elapsedMs = Date.now() - startMs;
     const report = {
       ok: true,
@@ -4594,14 +4747,25 @@
         luxuryTaxPenalizedCount: audit.luxuryTaxPenalizedCount,
         nonFAMultiYearSignedCount: audit.nonFAMultiYearSignedCount,
         mustDoBlockedCount: audit.mustDoBlockedCount,
-        mustDoBlockingVerified
+        mustDoBlockingVerified,
+        economyWeeklySettledCount,
+        subsidyByRankEok: subsidyByRank.map((v) => +(v / 10000).toFixed(1)),
+        luxuryTaxPickDropCount: audit.luxuryTaxPickDropCount || 0
       },
       assertions: [
         { expr: "assert(draftFiredCount === 1000)", actual: draftFiredCount, expected: 1000, passed: draftFiredCount === 1000 },
         { expr: "assert(injury6WeekEventFired > 0)", actual: injury6WeekEventFired, expected: "> 0", passed: injury6WeekEventFired > 0 },
         { expr: "assert(facilityEffectAppliedCount > 0)", actual: facilityEffectAppliedCount, expected: "> 0", passed: facilityEffectAppliedCount > 0 },
         { expr: "assert(toDoListGeneratedCount === 1000 * 52)", actual: toDoListGeneratedCount, expected: 52000, passed: toDoListGeneratedCount === 52000 },
-        { expr: "assert(militaryReturnsCount > 0)", actual: militaryReturnsCount, expected: "> 0", passed: militaryReturnsCount > 0 }
+        { expr: "assert(militaryReturnsCount > 0)", actual: militaryReturnsCount, expected: "> 0", passed: militaryReturnsCount > 0 },
+        { expr: "assert(mustDoBlockingVerified)", actual: mustDoBlockingVerified, expected: true, passed: mustDoBlockingVerified === true },
+        { expr: "assert(economyWeeklySettledCount > 0)", actual: economyWeeklySettledCount, expected: "> 0", passed: economyWeeklySettledCount > 0 },
+        { expr: "assert(subsidyReverseOrderVerified)", actual: subsidyReverseOrderVerified, expected: true, passed: subsidyReverseOrderVerified },
+        { expr: "assert(budgetIntegrityVerified)", actual: budgetIntegrityVerified, expected: true, passed: budgetIntegrityVerified },
+        { expr: "assert(luxuryTaxEscalationVerified)", actual: luxuryTaxEscalationVerified, expected: true, passed: luxuryTaxEscalationVerified },
+        { expr: "assert(round1PickDropVerified)", actual: round1PickDropVerified, expected: true, passed: round1PickDropVerified },
+        { expr: "assert(releaseNoCashRefundVerified)", actual: releaseNoCashRefundVerified, expected: true, passed: releaseNoCashRefundVerified },
+        { expr: "assert(stoveAutomationVerified)", actual: stoveAutomationVerified, expected: true, passed: stoveAutomationVerified }
       ]
     };
 
@@ -4637,6 +4801,9 @@
     SANGMU_SERVICE_DAYS,
     FACILITY_SPECS,
     KBO_SALARY_CAP_LIMIT,
+    SALARY_CAP_RATIO,
+    LUXURY_TAX_TIERS,
+    getSalaryCapLimit,
     PARK_REMODEL_PRESETS,
     FUTURES_TRAINING_PROGRAMS,
     PROTECTION_MODE_LIMITS,

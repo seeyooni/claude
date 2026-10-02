@@ -670,9 +670,11 @@
       team.ownerTrust = clamp(Math.round(team.ownerTrust + netWins * 1.2), 0, 100);
       team.fanRatio = clamp(Math.round(team.fanRatio + netWins * 1.5), 0, 100);
 
-      // 주간 홈 입장 수익 + 중계권 배당금 반영 (100억~250억 원 밸런스 범위 유지)
-      const weeklyGateRev = Math.round(3200 + (team.fanRatio || 55) * 40 + d.w * 350);
-      team.budget = clamp(Math.round((team.budget || 1200000) + weeklyGateRev), 1000000, 2500000);
+      // 주간 재정 정산: 자체 수입(입장·중계·상품) - 운영비, 적자 시 구단주 신임도 하락 (KBO_GM.Economy)
+      const economy = (typeof globalThis !== "undefined" && globalThis.KBO_GM && globalThis.KBO_GM.Economy) || null;
+      if (economy && typeof economy.settleWeeklyFinance === "function") {
+        economy.settleWeeklyFinance(context, team, d);
+      }
 
       // 전 선수(1군/2군/육성) 시즌 파생 지표(WAR, wOBA, ERA, OBP 등) 갱신
       if (!options.fastSimMode) {

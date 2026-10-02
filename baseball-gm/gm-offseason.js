@@ -113,10 +113,35 @@
    *   - userPolicy: 'GENEROUS'(후한 협상) | 'FAIR'(적정 협상) | 'AUSTERITY'(긴축 삭감)
    *   - advanceServiceTime: true (기본값, FA 연차 +1 및 다년계약 잔여연수 -1 처리)
    */
+  /**
+   * 스토브리그 처리 단계 기록 (연봉 재계약 / FA 공시 / 외국인 계약)
+   * - 스토브리그 키 = 다가오는 시즌 연도 (10~12월이면 currentYear + 1, 1~9월이면 currentYear)
+   * - 유저가 버튼으로 먼저 처리했으면, 일간 진행 엔진의 마감일 자동 처리가 같은 단계를 다시 돌리지 않는다.
+   */
+  function getStoveSeasonKey(context) {
+    const month = Number(String((context && context.currentDate) || "").slice(5, 7)) || 1;
+    const year = (context && context.currentYear) || 2025;
+    return month >= 10 ? year + 1 : year;
+  }
+
+  function markStoveStep(context, step) {
+    if (!context) return;
+    if (!context._stoveDone || typeof context._stoveDone !== "object") context._stoveDone = {};
+    const key = getStoveSeasonKey(context);
+    if (!context._stoveDone[key]) context._stoveDone[key] = {};
+    context._stoveDone[key][step] = true;
+  }
+
+  function isStoveStepDone(context, step, seasonKey) {
+    const key = seasonKey || getStoveSeasonKey(context);
+    return Boolean(context && context._stoveDone && context._stoveDone[key] && context._stoveDone[key][step]);
+  }
+
   function processSalaryRenewals(context, options = {}) {
     if (!context || !Array.isArray(context.kboTeams)) {
       throw new Error("유효한 GMGameContext 인스턴스가 필요합니다.");
     }
+    markStoveStep(context, "salary");
     const rng = options.rng || Math.random;
     const userOffers = options.userOffers || {};
     const userPolicy = options.userPolicy || "FAIR";
@@ -1050,6 +1075,7 @@
    * 10개 구단에서 당해 FA 권리 행사 선수(구단별 최대 2~3명, 리그 전체 약 20~28명) 추출 및 공시
    */
   function declareEligibleFAPlayers(context, options = {}) {
+    markStoveStep(context, "declared");
     const maxPerTeam = options.maxFAsPerTeam || 3;
     const newlyDeclared = [];
 
@@ -1195,7 +1221,9 @@
         }
 
         // AI 원소속구단이 우선협상 기간에 잔류 계약을 성사시킬 확률 (A급/B급 프랜차이즈 중 예산 여유 시)
-        const canAfford = (formerTeam.budget || 1200000) >= prof.demandSigningBonus + 350000;
+        // FA 공시 선수는 로스터(연봉총액)에서 빠져 있으므로, 여유 예산으로 계약금 + 첫해 연봉을 모두 감당해야 잔류 가능
+        const retainAnnual = Math.round(((prof.demandTotal || 0) - (prof.demandSigningBonus || 0)) / Math.max(1, prof.demandYears || 1));
+        const canAfford = formerTeam.getAvailableBudget() >= (prof.demandSigningBonus || 0) + retainAnnual;
         const retainProb = !canAfford
           ? 0.0
           : prof.faGrade === "A"
@@ -1419,7 +1447,7 @@
       if (phase === "OPEN") {
         // 오픈 마켓일 경우 관심 있는 경쟁 AI 구단 오퍼 생성
         const candidateTeams = (context.kboTeams || []).filter(
-          (t) => t.id !== userTeam.id && (t.budget || 1200000) >= prof.demandTotal * 0.4
+          (t) => t.id !== userTeam.id && t.getAvailableBudget() >= prof.demandTotal / Math.max(1, prof.demandYears || 1)
         );
         if (candidateTeams.length > 0) {
           const seed = String(faPlayer.id || "FA")
@@ -1502,11 +1530,14 @@
     const expectedCompCash = isHomeTeam
       ? 0
       : Math.round((prof.prevSalary || 15000) * (prof.faGrade === "A" ? 2.0 : prof.faGrade === "B" ? 1.0 : 1.5));
-    if ((userTeam.budget || 0) < offerDP + expectedCompCash) {
+    // 여유 예산(예산 - 연봉총액) 안에서 계약금 + 첫해 연봉 + 예상 보상금을 모두 감당해야 한다
+    const userRoom = userTeam.getAvailableBudget();
+    const userAnnualNeed = annualSalary; // FA 공시 선수는 연봉총액에서 빠져 있으므로 잔류든 영입이든 첫해 연봉 전액이 필요
+    if (userRoom < offerDP + userAnnualNeed + expectedCompCash) {
       return {
         ok: false,
         code: "INSUFFICIENT_BUDGET",
-        message: `구단 가용 예산(${((userTeam.budget || 0) / 10000).toFixed(2)}억)이 계약금(${(offerDP / 10000).toFixed(2)}억) 및 예상 보상금(${(expectedCompCash / 10000).toFixed(2)}억) 합계보다 부족합니다.`
+        message: `여유 예산(${(userRoom / 10000).toFixed(2)}억)이 계약금(${(offerDP / 10000).toFixed(2)}억) + 연봉(${(userAnnualNeed / 10000).toFixed(2)}억) + 예상 보상금(${(expectedCompCash / 10000).toFixed(2)}억) 합계보다 부족합니다. 구단주 증액 요청을 검토하세요.`
       };
     }
 
@@ -1539,7 +1570,7 @@
     if (isAccepted) {
       // 즉시 계약 체결 처리!
       negState.status = "SIGNED";
-      userTeam.budget = clamp((userTeam.budget || 1200000) - offerDP, 100000, 2500000);
+      userTeam.budget = clamp((userTeam.budget || 1200000) - offerDP, -3000000, 4000000);
 
       const formerTeam = context.getTeam ? context.getTeam(faPlayer.formerTeamId) : null;
       faPlayer.teamId = userTeam.id;
@@ -1795,8 +1826,8 @@
     const chosenCompPlayer = unprotectedPool[0] || null;
     if (!chosenCompPlayer) {
       const cashOnly = Math.round(prevSalary * gradeRule.cashOnlyMultiplier);
-      signingTeam.budget = clamp((signingTeam.budget || 1200000) - cashOnly, 1000000, 2500000);
-      formerTeam.budget = clamp((formerTeam.budget || 1200000) + cashOnly, 1000000, 2500000);
+      signingTeam.budget = clamp((signingTeam.budget || 1200000) - cashOnly, -3000000, 4000000);
+      formerTeam.budget = clamp((formerTeam.budget || 1200000) + cashOnly, -3000000, 4000000);
       return {
         faGrade: profile.faGrade,
         fromTeamId: signingTeam.id,
@@ -1825,8 +1856,8 @@
     }
 
     const cashComp = Math.round(prevSalary * gradeRule.cashMultiplierWithComp);
-    signingTeam.budget = clamp((signingTeam.budget || 1200000) - cashComp, 1000000, 2500000);
-    formerTeam.budget = clamp((formerTeam.budget || 1200000) + cashComp, 1000000, 2500000);
+    signingTeam.budget = clamp((signingTeam.budget || 1200000) - cashComp, -3000000, 4000000);
+    formerTeam.budget = clamp((formerTeam.budget || 1200000) + cashComp, -3000000, 4000000);
 
     return {
       faGrade: profile.faGrade,
@@ -1959,18 +1990,26 @@
         if (team.id === context.userTeamId && !options.allowAutoUserRetention) return;
 
         const isFormerTeam = team.id === faPlayer.formerTeamId;
+        if (team.id === context.userTeamId && !isFormerTeam) return;
         const posNeed = (teamNeedsMap[team.id] && teamNeedsMap[team.id][faPlayer.pos]) || 0;
 
         // A등급 외부 영입은 20인 외 보상선수 + 연봉 200~300% 리스크가 크므로 포지션 구멍이 크고 예산이 넉넉할 때만 입찰
         const compRiskThreshold = profile.faGrade === "A" ? 5.5 : profile.faGrade === "B" ? 3.0 : 1.5;
         const compMultiplier = profile.faGrade === "A" ? 2.0 : profile.faGrade === "B" ? 1.0 : 1.5;
         const expectedCompCash = Math.round((profile.prevSalary || 10000) * compMultiplier);
-        const minBudgetRequired =
-          profile.demandTotal * 0.45 + 300000 + (isFormerTeam ? 0 : expectedCompCash);
+        // 여유 예산(예산 - 연봉총액) 기준: 계약금 + 첫해 연봉 + (외부 영입 시) 보상금을 모두 감당할 수 있어야 입찰
+        const demandAnnual = profile.demandTotal / Math.max(1, profile.demandYears || 1);
+        const demandBonus = profile.demandSigningBonus || profile.demandTotal * 0.35;
+        const minBudgetRequired = demandBonus + demandAnnual + (isFormerTeam ? 0 : expectedCompCash);
+        const teamRoom = team.getAvailableBudget();
 
-        if (team.budget < minBudgetRequired) return;
+        if (teamRoom < minBudgetRequired) return;
 
         let bidInterestProb = isFormerTeam ? 0.72 : 0.18 + posNeed * 0.045;
+        // 여유 예산이 넉넉한(모기업 역순 지원금을 받은 하위권) 구단일수록 외부 FA 영입에 적극적
+        if (!isFormerTeam) {
+          bidInterestProb *= clamp(1 + (teamRoom - minBudgetRequired) / 400000, 1, 1.6);
+        }
         if (!isFormerTeam && posNeed < compRiskThreshold && profile.faGrade === "A") {
           bidInterestProb *= 0.25;
         }
@@ -2025,7 +2064,7 @@
         const formerTeam = context.getTeam(faPlayer.formerTeamId);
 
         // 계약금 + 첫해 연봉 구단 예산 반영 (100억~250억 원 밸런스 범위 유지)
-        winTeam.budget = clamp((winTeam.budget || 1200000) - winningBid.signingBonus, 1000000, 2500000);
+        winTeam.budget = clamp((winTeam.budget || 1200000) - winningBid.signingBonus, -3000000, 4000000);
 
         faPlayer.teamId = winTeam.id;
         faPlayer.salary = winningBid.annualSalary;
@@ -2355,11 +2394,26 @@
     if (!context || !Array.isArray(context.kboTeams)) {
       throw new Error("유효한 GMGameContext 인스턴스가 필요합니다.");
     }
+    markStoveStep(context, "foreign");
     const rng = options.rng || Math.random;
 
     const teamForeignReports = {};
 
-    context.kboTeams.forEach((team) => {
+    // 전력 평준화: 해외 풀 공용 후보를 직전 순위 '역순'(10위 → 1위)으로 영입한다 (신인 드래프트와 동일 원칙)
+    // 새해에는 순위표가 0승 0패로 초기화되므로, 경기 기록이 없으면 직전 완료 시즌 순위를 사용한다
+    const rankOf = {};
+    const curStandings = context.standings || [];
+    const curHasGames = curStandings.some((s) => (s.w || 0) + (s.l || 0) > 0);
+    const history = Array.isArray(context.seasonHistory) ? context.seasonHistory : [];
+    const rankSource = curHasGames
+      ? curStandings
+      : (history.length && history[history.length - 1].standings) || curStandings;
+    rankSource.forEach((s) => {
+      rankOf[s.teamId] = s.rank;
+    });
+    const orderedTeams = context.kboTeams.slice().sort((a, b) => (rankOf[b.id] || 5) - (rankOf[a.id] || 5));
+
+    orderedTeams.forEach((team) => {
       const isUserTeam = team.id === context.userTeamId;
       const allPlayers = team.getAllPlayers();
       const currentForeigners = allPlayers.filter((p) => p.nationality && p.nationality !== "KOR" && !p.isAsianQuarter);
@@ -2455,7 +2509,7 @@
           fp.salary = isUserTeam && userOfferedSal ? userOfferedSal : round100(oldSal * raiseRate);
           fp.contractYears = 1;
           fp.renewalNegotiationStatus = "AGREED";
-          team.budget = clamp((team.budget || 1200000) - Math.round(fp.salary * 0.15), 1000000, 2500000); // 재계약 인센티브/계약금 차감
+          team.budget = clamp((team.budget || 1200000) - Math.round(fp.salary * 0.15), -3000000, 4000000); // 재계약 인센티브/계약금 차감
 
           reSigned.push({
             playerId: fp.id,
@@ -2510,7 +2564,7 @@
 
         const contractSalary = round100(candidate.salary || 55000);
         const buyoutFee = round100(contractSalary * 0.25); // 이적료/바이아웃 + 계약금
-        team.budget = clamp((team.budget || 1200000) - buyoutFee, 1000000, 2500000);
+        team.budget = clamp((team.budget || 1200000) - buyoutFee, -3000000, 4000000);
 
         candidate.teamId = team.id;
         candidate.salary = contractSalary;
@@ -2656,6 +2710,9 @@
     negotiateFAPlayerDirect,
     calculateFairSalary,
     processSalaryRenewals,
+    getStoveSeasonKey,
+    markStoveStep,
+    isStoveStepDone,
     evaluateFAPlayerMarketProfile,
     declareEligibleFAPlayers,
     executeFACompensation,

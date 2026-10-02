@@ -1221,6 +1221,13 @@
         <button type="button" class="create-choice-pill" data-create-trait="NEGOTIATOR">협상의 달인 (요구액 -5%)</button>
       </div>
 
+      <label class="create-field-label">경제 난이도 (모기업 지원금 · 자체 수입 · 적자 페널티)</label>
+      <div class="create-pill-row" id="createDifficultyGroup">
+        <button type="button" class="create-choice-pill" data-create-difficulty="EASY" title="모기업 지원 +15억 · 수입 ×1.25 · 증액 승인 +15%p · 적자 페널티 없음">쉬움 (지원 넉넉)</button>
+        <button type="button" class="create-choice-pill active" data-create-difficulty="NORMAL" title="상위권을 지키려면 구단주 추가 지원이 필요한 수준">보통 (권장)</button>
+        <button type="button" class="create-choice-pill" data-create-difficulty="HARD" title="모기업 지원 -10억 · 수입 ×0.8 · 증액 승인 -12%p · 적자 시 신임도 급락">어려움 (긴축 경영)</button>
+      </div>
+
       <label class="create-field-label">단장 첫 계약 조건 (고정)</label>
       <div class="create-pill-row" style="grid-template-columns: 1fr 1fr;">
         <div class="create-choice-pill active" style="cursor:default">3년 계약 · 총액 8억 원</div>
@@ -1889,6 +1896,7 @@
   <script src="gm-spring-camp.js"></script>
   <script src="gm-extensions.js"></script>
   <script src="gm-setup.js"></script>
+  <script src="gm-economy.js"></script>
   <script src="gm-ui.js"></script>
 </body>
 </html>
