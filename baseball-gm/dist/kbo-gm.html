@@ -13398,6 +13398,10 @@
 
     const prog = FUTURES_TRAINING_PROGRAMS[programKey];
     if (!prog) return { ok: false, reason: "유효하지 않은 훈련 프로그램입니다." };
+    const playerRole = player.type === "pitcher" ? "pitcher" : "batter";
+    if (prog.role && prog.role !== playerRole) {
+      return { ok: false, reason: `${player.name}(${player.pos})은 ${playerRole === "pitcher" ? "투수" : "타자"}라서 '${prog.label}' 과제를 받을 수 없습니다.` };
+    }
 
     player.trainingFocus = prog.key;
     player.morale = clamp((player.morale ?? 78) + 3, 0, 100);
@@ -23880,7 +23884,7 @@
             <td class="tnum num font-bold ${(m.war || 0) >= 2 ? "text-good" : (m.war || 0) < 0 ? "text-bad" : ""}">${(m.war || 0).toFixed(2)}</td>
             <td class="tnum num">${fmtMoney(p.salary)}</td>
             <td>${injHtml}</td>
-            <td class="action-cell" onclick="event.stopPropagation()">${actionBtns}</td>
+            <td class="action-cell">${actionBtns}</td>
           </tr>
         `;
     }
@@ -26975,7 +26979,7 @@
                         <select class="gm-select" style="font-size:12px;padding:3px 8px" data-futures-training-select="${p.id}">
                           <option value="">-- 과제 선택 --</option>
                           ${Object.values(trainProgs)
-                            .filter((pr) => !pr.targetType || pr.targetType === p.type)
+                            .filter((pr) => !pr.role || pr.role === (p.type === "pitcher" ? "pitcher" : "batter"))
                             .map(
                               (pr) =>
                                 `<option value="${esc(pr.key)}" ${p.trainingFocus === pr.key ? "selected" : ""}>${esc(pr.label)}</option>`
@@ -28935,8 +28939,10 @@
         return;
       }
 
+      // 행 전체가 선수 상세를 여는 표에서, 행 안의 버튼·메뉴·입력을 누른 경우는 그 버튼의 동작이 우선
       const modalTrigger = e.target.closest("[data-player-modal]");
-      if (modalTrigger) {
+      const innerControl = e.target.closest("button, summary, details, input, select, textarea, a, label");
+      if (modalTrigger && !(modalTrigger.tagName === "TR" && innerControl && modalTrigger.contains(innerControl))) {
         openPlayerModal(
           modalTrigger.dataset.playerModal,
           modalTrigger.dataset.teamId,
@@ -29068,6 +29074,8 @@
           fp.injury = { active: true, name: "내측측부인대 부분 손상", label: "팔꿈치 6주 장기부상", weeksLeft: 6, daysLeft: 42, major: true };
           showToast(`${fp.name} 선수에게 6주(42일) 장기 부상이 발생했습니다. '6주 대체 외국인 영입' 버튼이 활성화됩니다.`, "bad");
           renderAll();
+        } else {
+          showToast("이 선수는 지금 우리 구단 명단에 없어 부상을 적용할 수 없습니다 (재계약 대기 중인 외국인 선수).", "info");
         }
         return;
       }
@@ -29861,6 +29869,8 @@
           if (res && res.ok) {
             showToast(res.summary, "good");
             renderAll();
+          } else if (res) {
+            showToast(res.reason, "bad");
           }
         }
         return;

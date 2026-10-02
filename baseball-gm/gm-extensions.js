@@ -1745,6 +1745,10 @@
 
     const prog = FUTURES_TRAINING_PROGRAMS[programKey];
     if (!prog) return { ok: false, reason: "유효하지 않은 훈련 프로그램입니다." };
+    const playerRole = player.type === "pitcher" ? "pitcher" : "batter";
+    if (prog.role && prog.role !== playerRole) {
+      return { ok: false, reason: `${player.name}(${player.pos})은 ${playerRole === "pitcher" ? "투수" : "타자"}라서 '${prog.label}' 과제를 받을 수 없습니다.` };
+    }
 
     player.trainingFocus = prog.key;
     player.morale = clamp((player.morale ?? 78) + 3, 0, 100);

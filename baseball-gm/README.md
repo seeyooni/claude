@@ -35,6 +35,10 @@ python3 -m http.server 8000   # http://localhost:8000
 
 원본은 `gm-economy.js`·`gm-nonfa.js`·`gm-retro.js`·`gm-balance.js`를 뺀 10개 모듈을 하나로 합친 단일 `index.html`이었으며, 협업·수정이 쉽도록 원래의 모듈 단위로 다시 분리했다.
 
+## 버튼 동작 점검 (`tools/qa/`)
+
+`node tools/build-standalone.js` 후 `node tools/qa/effect.js` / `node tools/qa/effect2.js` (Playwright 필요, `PLAYWRIGHT_PATH`로 경로 지정 가능). 1월·5월·9월 드래프트·11월·12월 다섯 시점에서 모든 화면의 버튼, 로스터 '더보기' 메뉴, 팝업 안 버튼, 상단 메뉴, 저장·불러오기, 로비를 실제 클릭으로 눌러 '알림·팝업·화면·구단 상태' 중 아무것도 바뀌지 않는 버튼을 찾는다. 선택 상자는 별도 '저장' 버튼과 짝인 경우가 많아 참고용으로만 표시한다.
+
 ## 화면 구조 · 디자인 시스템
 
 단장이 "무엇을 결정해야 하고, 어떤 정보를 믿어도 되는지"를 바로 구분하도록 설계했다.
